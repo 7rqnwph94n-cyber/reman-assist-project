@@ -1,0 +1,38 @@
+{
+  "name": "Caterpillar",
+  "description": "Caterpillar parts catalog format",
+  "version": "1.0",
+  "detection": {
+    "keywords": ["CAT", "CATERPILLAR", "GRAPHIC REF", "PARTNUMBER"],
+    "patterns": [
+      "\\d{3}-\\d{4}\\s+[A-Z\\s]+AS"
+    ]
+  },
+  "section_detection": {
+    "type": "header_text",
+    "patterns": [
+      "^[A-Z\\s]{10,}$",
+      "^\\d{3}-\\d{4}\\s+[A-Z\\s]+AS$"
+    ],
+    "min_font_size": 11
+  },
+  "table_structure": {
+    "columns": [
+      {"name": "pos", "aliases": ["REF NOTE NO", "REF", "ITEM"]},
+      {"name": "graphic_ref", "aliases": ["GRAPHIC REF"]},
+      {"name": "part_no", "aliases": ["PARTNUMBER", "PART NUMBER", "PART NO"]},
+      {"name": "qty", "aliases": ["QTY", "QUANTITY"]},
+      {"name": "name", "aliases": ["PARTNAME", "PART NAME", "DESCRIPTION"]},
+      {"name": "see_page", "aliases": ["SEE PAGE"]}
+    ],
+    "header_detection": "first_bold_row"
+  },
+  "image_extraction": {
+    "mode": "section_header",
+    "position": "above_table",
+    "min_width": 200,
+    "min_height": 200,
+    "file_pattern": "{section}_diagram_p{page}.png",
+    "notes": "Primary diagram per section, used by template wizard"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "name": "Kubota",
+  "description": "Kubota engine parts catalog format (Chinese/English bilingual)",
+  "version": "1.0",
+  "detection": {
+    "keywords": ["KUBOTA", "零件号", "Part Number", "AC 6047", "AD6005"],
+    "patterns": [
+      "[A-Z]{2}\\s*\\d{4}",
+      "[A-Z]{2}\\d{4}"
+    ]
+  },
+  "section_detection": {
+    "type": "header_text",
+    "patterns": [
+      "^[A-Z]{2}\\s*\\d{4}\\s+.+$",
+      "^[A-Z]{2}\\d{4}\\s+.+$"
+    ],
+    "min_font_size": 10
+  },
+  "table_structure": {
+    "columns": [
+      {"name": "level", "aliases": ["级别", "LV", "Level"]},
+      {"name": "part_no", "aliases": ["零件号", "Part Number", "Part No"]},
+      {"name": "pos", "aliases": ["图上标号", "Ref No", "Item"]},
+      {"name": "name", "aliases": ["零件名称", "Part Name", "Description"]},
+      {"name": "qty", "aliases": ["数量", "Req", "Quantity", "Qty"]},
+      {"name": "notes", "aliases": ["备注", "Remarks", "Notes"]}
+    ],
+    "header_detection": "bilingual",
+    "language": "zh-en"
+  },
+  "image_extraction": {
+    "mode": "section_header",
+    "position": "above_table",
+    "min_width": 150,
+    "min_height": 150,
+    "file_pattern": "{section}_diagram_p{page}.png",
+    "notes": "Primary diagram per section, used by template wizard"
+  }
+}

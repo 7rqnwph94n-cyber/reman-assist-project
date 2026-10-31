@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h1>Costing Sheet – Job {{ job.job_number }}</h1>
+    <div class="actions">
+        <a class="button secondary" href="{{ url_for('parts.job_parts', job_id=job.id) }}">{{ t('back_to_parts') }}</a>
+        <form method="post" action="{{ url_for('costing.job_costing', job_id=job.id) }}" style="display:inline;">
+            {% include "_csrf.html" %}
+            <input type="hidden" name="action" value="rebind">
+            <button type="submit" class="button secondary">Rebind to {{ t('parts_list_caps') }}</button>
+        </form>
+        {% if enable_template_costing %}
+            <form method="post" action="{{ url_for('costing.job_costing', job_id=job.id) }}" style="display:inline;">
+                {% include "_csrf.html" %}
+                <input type="hidden" name="action" value="enrich">
+                <button type="submit" class="button secondary">Enrich from catalogue</button>
+            </form>
+        {% endif %}
+        <a class="button" href="{{ url_for('costing.export_costing', job_id=job.id) }}">Export XLSX</a>
+    </div>
+    <p class="text-muted">
+        Stage: {{ sheet.stage.value if sheet.stage else 'awaiting_sas' }}
+        {% if active_upload %}| Costing upload v{{ active_upload.version }}{% endif %}
+        | Warning: {{ sheet.warning_text or '—' }}
+    </p>
+</div>
+
+<div class="card" style="padding:0.9rem; margin-bottom:1rem;">
+    <form method="post" enctype="multipart/form-data" action="{{ url_for('costing.job_costing_upload', job_id=job.id) }}">
+        {% include "_csrf.html" %}
+        <div class="form-grid" style="display:grid; gap:0.75rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); align-items:end;">
+            <div>
+                <label class="field-label" for="costing_file">Upload costing file</label><br>
+                <input type="file" id="costing_file" name="costing_file" accept=".xlsx,.xls,.csv" required>
+            </div>
+            <div>
+                <label class="field-label" for="sheet_name">Sheet name (optional)</label><br>
+                <input type="text" id="sheet_name" name="sheet_name" class="text-input" placeholder="e.g. Sheet1">
+            </div>
+            <div style="align-self:end;">
+                <button type="submit" class="button">Upload &amp; apply</button>
+            </div>
+        </div>
+    </form>
+
+    {% if uploads %}
+        <form method="post" action="{{ url_for('costing.job_costing_use_upload', job_id=job.id) }}" style="margin-top:0.75rem;">
+            {% include "_csrf.html" %}
+            <label class="field-label" for="upload_id">Previous versions</label><br>
+            <div class="form-grid" style="display:grid; gap:0.75rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); align-items:end;">
+                <div>
+                    <select id="upload_id" name="upload_id" class="text-input">
+                        {% for up in uploads %}
+                            <option value="{{ up.id }}" {% if active_upload and up.id == active_upload.id %}selected{% endif %}>
+                                v{{ up.version }} — {{ up.original_filename or up.file_path }} ({{ format_date(up.uploaded_at) }})
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div style="align-self:end;">
+                    <button type="submit" class="button secondary">Re-apply version</button>
+                    {% if active_upload %}
+                        <a class="button secondary" href="{{ url_for('costing.job_costing_download', job_id=job.id, upload_id=active_upload.id) }}">Download</a>
+                    {% endif %}
+                </div>
+            </div>
+        </form>
+    {% endif %}
+</div>
+
+{% if unmatched %}
+    <div class="card" style="padding:0.8rem; margin-bottom:1rem; border-left:4px solid #c2410c;">
+        <strong>{{ unmatched|length }} line(s) need attention:</strong>
+        <ul style="margin:0.4rem 0 0 1rem;">
+            {% for l in unmatched %}
+                <li>{{ l.system_part_number or l.oem_part_no or l.part_description }} – {{ l.match_status.value }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+{% endif %}
+
+<form method="post">
+    {% include "_csrf.html" %}
+    <div class="card" style="padding:1rem;">
+        <input type="hidden" name="action" value="save">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Part</th>
+                    <th>Description</th>
+                    <th>Qty</th>
+                    <th>Supplier</th>
+                    <th>Unit cost</th>
+                    <th>PO</th>
+                    <th>Status</th>
+                    <th>Match</th>
+                    <th>Notes</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for line in lines %}
+                    <tr>
+                        <td>{{ line.line_no or loop.index }}</td>
+                        <td>
+                            <div>{{ line.system_part_number or line.oem_part_no or '—' }}</div>
+                            <div class="text-muted">{{ line.line_class.value if line.line_class else '' }}</div>
+                        </td>
+                        <td>{{ line.part_description or '' }}</td>
+                        <td>
+                            <input type="number" name="qty_{{ line.id }}" class="text-input" style="width:90px;" value="{{ line.qty_required or 0 }}">
+                        </td>
+                        <td>
+                            <input type="text" name="supplier_{{ line.id }}" class="text-input" value="{{ line.intended_supplier or line.latest_supplier or '' }}">
+                        </td>
+                        <td>
+                            <input type="number" step="0.01" name="unit_cost_{{ line.id }}" class="text-input" style="width:110px;" value="{{ line.unit_cost_confirmed or line.latest_cost or '' }}">
+                        </td>
+                        <td>
+                            <input type="text" name="po_{{ line.id }}" class="text-input" value="{{ line.po_number or '' }}">
+                        </td>
+                        <td>
+                            <select name="proc_status_{{ line.id }}" class="text-input">
+                                {% for ps in ProcurementStatusEnum %}
+                                    <option value="{{ ps.value }}" {% if line.procurement_status == ps %}selected{% endif %}>{{ ps.value }}</option>
+                                {% endfor %}
+                            </select>
+                        </td>
+                        <td>
+                            <span class="pill pill-{{ 'good' if line.match_status == MatchStatusEnum.MATCHED else 'amber' if line.match_status == MatchStatusEnum.AMBIGUOUS else 'muted' }}">
+                                {{ line.match_status.value if line.match_status else 'unknown' }}
+                            </span>
+                        </td>
+                        <td>
+                            <input type="text" name="notes_{{ line.id }}" class="text-input" value="{{ line.notes or '' }}">
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <div style="margin-top:1rem;">
+            <button type="submit" class="button">Save costing</button>
+        </div>
+    </div>
+</form>
+{% endblock %}

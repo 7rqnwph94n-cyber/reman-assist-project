@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h1>QuickBooks Sync Logs</h1>
+    <div class="actions">
+        <a href="{{ url_for('quickbooks.quickbooks_settings') }}" class="button secondary">Back to Settings</a>
+    </div>
+</div>
+
+<div class="card" style="padding:1.5rem;">
+    {% if logs.items %}
+        <div style="overflow-x:auto;">
+            <table class="table" style="width:100%;">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Type</th>
+                        <th>Entity</th>
+                        <th>Status</th>
+                        <th>QB ID</th>
+                        <th>Doc Number</th>
+                        <th>User</th>
+                        <th>Error</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in logs.items %}
+                    <tr>
+                        <td style="white-space:nowrap;">{{ format_date(log.synced_at, with_time=True) }}</td>
+                        <td>{{ log.sync_type.value|title }}</td>
+                        <td>
+                            <a href="{{ url_for('jobs.job_detail', job_id=log.entity_id) if log.entity_type == 'Job' else '#' }}">
+                                {{ log.entity_type }} #{{ log.entity_id }}
+                            </a>
+                        </td>
+                        <td>
+                            {% if log.status == 'success' %}
+                                <span style="display:inline-flex; align-items:center; gap:0.25rem; padding:0.125rem 0.5rem; background:var(--color-success-bg, #d4edda); border-radius:var(--radius-sm); color:var(--color-success, #28a745); font-size:0.875rem;">
+                                    &#10003; Success
+                                </span>
+                            {% elif log.status == 'failed' %}
+                                <span style="display:inline-flex; align-items:center; gap:0.25rem; padding:0.125rem 0.5rem; background:var(--color-danger-bg, #f8d7da); border-radius:var(--radius-sm); color:var(--color-danger, #dc3545); font-size:0.875rem;">
+                                    &#10007; Failed
+                                </span>
+                            {% else %}
+                                <span style="display:inline-flex; align-items:center; gap:0.25rem; padding:0.125rem 0.5rem; background:var(--color-warning-bg, #fff3cd); border-radius:var(--radius-sm); color:var(--color-warning, #856404); font-size:0.875rem;">
+                                    {{ log.status|title }}
+                                </span>
+                            {% endif %}
+                        </td>
+                        <td>{{ log.qb_id or '—' }}</td>
+                        <td>{{ log.qb_doc_number or '—' }}</td>
+                        <td>{{ log.synced_by.username if log.synced_by else '—' }}</td>
+                        <td>
+                            {% if log.error_message %}
+                                <span style="color:var(--color-danger, #dc3545);" title="{{ log.error_message }}">
+                                    {% if log.error_code %}[{{ log.error_code }}]{% endif %}
+                                    {{ log.error_message[:40] }}{% if log.error_message|length > 40 %}...{% endif %}
+                                </span>
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {# Pagination #}
+        {% if logs.pages > 1 %}
+        <div style="display:flex; justify-content:center; gap:0.5rem; margin-top:1.5rem;">
+            {% if logs.has_prev %}
+                <a href="{{ url_for('quickbooks.quickbooks_logs', page=logs.prev_num) }}" class="button secondary">&laquo; Previous</a>
+            {% endif %}
+
+            <span style="display:flex; align-items:center; padding:0 1rem; color:var(--color-text-muted);">
+                Page {{ logs.page }} of {{ logs.pages }}
+            </span>
+
+            {% if logs.has_next %}
+                <a href="{{ url_for('quickbooks.quickbooks_logs', page=logs.next_num) }}" class="button secondary">Next &raquo;</a>
+            {% endif %}
+        </div>
+        {% endif %}
+    {% else %}
+        <p style="color:var(--color-text-muted); text-align:center; padding:2rem;">
+            No sync logs found. Sync activity will appear here after you sync invoices or expenses.
+        </p>
+    {% endif %}
+</div>
+{% endblock %}

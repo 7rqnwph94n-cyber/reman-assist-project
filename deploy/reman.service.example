@@ -1,0 +1,17 @@
+[Unit]
+Description=Reman Assistant
+After=network.target
+
+[Service]
+User=YOURUSER
+Group=YOURUSER
+WorkingDirectory=/Users/richbrotherton/project/reman_app_current/reman_app_gold_041225
+Environment="FLASK_ENV=production" "PYTHONPATH=."
+Environment="LOG_FILE=/Users/richbrotherton/project/reman_app_current/reman_app_gold_041225/logs/app.log"
+Environment="DATABASE_URL=postgresql://user:password@localhost:5432/reman"
+Environment="REDIS_URL=redis://localhost:6379/0"
+ExecStart=/Users/richbrotherton/project/reman_app_current/reman_app_gold_041225/venv/bin/gunicorn -w 3 -b 0.0.0.0:5001 app:app
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

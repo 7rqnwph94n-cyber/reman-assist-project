@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="picklist-page">
+<h1>Pick list – Job {{ job.job_number }}</h1>
+{% if read_only %}
+    <div class="flash flash-warning" style="margin-bottom: 1rem;">
+        Job is complete and read-only. Admin can reopen if needed.
+    </div>
+{% endif %}
+
+<div class="view-switch-bar">
+    <div class="view-switch-left">
+        <span class="job-pill">Job {{ job.job_number }}</span>
+        {% if job.engine_type %}
+            <span class="job-pill">Engine: {{ job.engine_type }}</span>
+        {% endif %}
+        {% if job.customer_name %}
+            <span class="job-pill">Customer: {{ job.customer_name }}</span>
+        {% endif %}
+    </div>
+
+    <div class="view-switch-right">
+        <a href="{{ url_for('parts.job_parts', job_id=job.id) }}" class="view-pill">
+            ← Back to parts
+        </a>
+    </div>
+</div>
+
+{% if not pick_items %}
+    <div class="card">
+        <p>No items to pick.</p>
+    </div>
+{% else %}
+    <form method="post" id="picklist-form">
+        {% include "_csrf.html" %}
+        <input type="hidden" name="next" id="picklist-next" value="">
+
+        {% if total_pages > 1 %}
+            <div class="toolbar-row" style="margin-bottom:0.75rem;">
+                <div class="toolbar-block">
+                    <span class="text-muted">Page {{ page }} of {{ total_pages }} ({{ total }} items)</span>
+                </div>
+                <div class="toolbar-block inline-actions" style="gap:0.5rem;">
+                    <button type="submit" name="action" value="bulk_pick" class="button secondary" {% if read_only %}disabled{% endif %}>
+                        Mark selected picked
+                    </button>
+                    <button type="submit" name="action" value="bulk_clear" class="button secondary" {% if read_only %}disabled{% endif %}>
+                        Clear selected
+                    </button>
+                    {% if page > 1 %}
+                        <a class="button secondary picklist-page-link" href="{{ url_for('stores.picklist_detail', picklist_id=picklist.id, page=page-1, per_page=per_page) }}">Prev</a>
+                    {% endif %}
+                    {% if page < total_pages %}
+                        <a class="button secondary picklist-page-link" href="{{ url_for('stores.picklist_detail', picklist_id=picklist.id, page=page+1, per_page=per_page) }}">Next</a>
+                    {% endif %}
+                </div>
+            </div>
+        {% endif %}
+        <div class="card">
+            <table class="strip-survey-table parts-table">
+                <thead>
+                    <tr>
+                        <th class="pick-select-col" style="width: 46px; text-align:center;">
+                            <input type="checkbox" id="pick-select-all" title="Select all on page" {% if read_only %}disabled{% endif %}>
+                        </th>
+                        <th style="width: 140px;">Part no</th>
+                        <th>Name</th>
+                        <th style="width: 100px;">Bin</th>
+                        <th style="width: 80px;">Qty</th>
+                        <th style="width: 80px;">Picked</th>
+                        <th style="width: 80px;">Issued</th>
+                        <th style="width: 90px;">Returned</th>
+                        <th style="width: 90px;">Stock</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in pick_items %}
+                        <tr>
+                            <td class="pick-select-col text-center">
+                                <input type="checkbox" name="select_item" value="{{ item.id }}" {% if read_only %}disabled{% endif %}>
+                            </td>
+                            <td class="partno-cell">{{ item.part_no }}</td>
+                            <td class="name-cell">{{ item.name }}</td>
+                            <td class="engine-cell small">
+                                {{ item.bin or "—" }}
+                            </td>
+                            <td class="qty-cell text-end">
+                                {{ item.qty }}
+                            </td>
+                            <td class="text-center">
+                                <input type="checkbox" name="picked_{{ item.id }}" {% if item.picked %}checked{% endif %} {% if read_only %}disabled{% endif %}>
+                            </td>
+                            <td class="qty-cell text-end">
+                                <input type="number" min="0" name="issued_{{ item.id }}" value="{{ item.issued_qty }}" {% if read_only %}disabled{% endif %}>
+                            </td>
+                            <td class="qty-cell text-end">
+                                <input type="number" min="0" name="returned_{{ item.id }}" value="{{ item.returned_qty }}" {% if read_only %}disabled{% endif %}>
+                            </td>
+                            <td class="qty-cell text-end">
+                                {% if item.stock is not none %}
+                                    {{ item.stock }}
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if total_pages > 1 %}
+            <div class="toolbar-row" style="margin-top:0.75rem;">
+                <div class="toolbar-block">
+                    <span class="text-muted">Page {{ page }} of {{ total_pages }} ({{ total }} items)</span>
+                </div>
+                <div class="toolbar-block inline-actions" style="gap:0.5rem;">
+                    <button type="submit" name="action" value="bulk_pick" class="button secondary" {% if read_only %}disabled{% endif %}>
+                        Mark selected picked
+                    </button>
+                    <button type="submit" name="action" value="bulk_clear" class="button secondary" {% if read_only %}disabled{% endif %}>
+                        Clear selected
+                    </button>
+                    {% if page > 1 %}
+                        <a class="button secondary picklist-page-link" href="{{ url_for('stores.picklist_detail', picklist_id=picklist.id, page=page-1, per_page=per_page) }}">Prev</a>
+                    {% endif %}
+                    {% if page < total_pages %}
+                        <a class="button secondary picklist-page-link" href="{{ url_for('stores.picklist_detail', picklist_id=picklist.id, page=page+1, per_page=per_page) }}">Next</a>
+                    {% endif %}
+                </div>
+            </div>
+        {% endif %}
+
+        <div class="actions" style="margin-top: 1.5rem; display:flex; gap:1rem;">
+            <button type="submit" class="primary" {% if read_only %}disabled{% endif %}>Save pick list</button>
+            <button type="button" onclick="window.print()">Print pick list</button>
+            <button type="button"
+                    onclick="window.location='{{ url_for('parts.job_parts', job_id=job.id) }}'">
+                ← Back to parts
+            </button>
+        </div>
+    </form>
+{% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+@media print {
+  body {
+    background: #ffffff;
+  }
+  * {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+  .picklist-page h1 {
+    margin-bottom: 0.4rem;
+  }
+  .view-switch-bar,
+  .actions,
+  .toolbar-row .inline-actions,
+  .button {
+    display: none !important;
+  }
+  .card {
+    box-shadow: none;
+    border: 1px solid #1f2933;
+    background: #ffffff;
+  }
+  .strip-survey-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+    box-shadow: none;
+  }
+  .strip-survey-table th,
+  .strip-survey-table td {
+    border: 1px solid #1f2933;
+    padding: 4px 6px;
+  }
+  .pick-select-col {
+    display: none;
+  }
+  .strip-survey-table th {
+    background: #f3f4f6;
+    color: #0f172a;
+  }
+  input[type="checkbox"] {
+    width: 12px;
+    height: 12px;
+  }
+  input[type="number"] {
+    width: 52px;
+    border: 1px solid #1f2933;
+    background: #ffffff;
+  }
+}
+</style>
+<script nonce="{{ csp_nonce() }}">
+(function() {
+  const form = document.getElementById('picklist-form');
+  const selectAll = document.getElementById('pick-select-all');
+  document.querySelectorAll('.picklist-page-link').forEach((link) => {
+    link.addEventListener('click', (ev) => {
+      if (!form) return;
+      ev.preventDefault();
+      const nextInput = document.getElementById('picklist-next');
+      if (nextInput) nextInput.value = link.getAttribute('href') || "";
+      form.submit();
+    });
+  });
+  if (selectAll) {
+    selectAll.addEventListener('change', () => {
+      const checked = selectAll.checked;
+      document.querySelectorAll('input[name="select_item"]').forEach((cb) => {
+        cb.checked = checked;
+      });
+    });
+    // Fallback for any scripts that might stop change from firing
+    selectAll.addEventListener('click', (ev) => {
+      const checked = ev.currentTarget.checked;
+      document.querySelectorAll('input[name="select_item"]').forEach((cb) => {
+        cb.checked = checked;
+      });
+    });
+  }
+})();
+</script>
+{% endblock %}

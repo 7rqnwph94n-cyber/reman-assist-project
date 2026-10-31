@@ -1,0 +1,71 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+
+# Flask
+instance/
+.webassets-cache
+
+# Database
+*.db
+*.sqlite
+*.db-journal
+*.db-shm
+*.db-wal
+!migrations/versions/*.db
+
+# Backups
+*.bak
+*.backup
+*.old
+*.tmp
+*_backup
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+logs/
+*.log
+
+# Uploads (user files)
+uploads/*
+!uploads/.gitkeep
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+*.cover
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Temporary
+*.pyc
+*.pyo
+tmp/
+temp/

@@ -1,0 +1,11 @@
+{% macro picklist_card(picklist) %}
+<div class="job-card">
+    <div class="card-row">
+        <strong>Pick list #{{ picklist.id }}</strong>
+        <span class="status-pill">{{ picklist.status.value }}</span>
+    </div>
+    <p class="text-muted">Created: {{ format_date(picklist.created_at) if picklist.created_at else '' }}</p>
+    <p class="text-muted">Items: {{ picklist.items|length }}</p>
+    <a class="button secondary" href="{{ url_for('stores.picklist_detail', picklist_id=picklist.id) }}">View</a>
+</div>
+{% endmacro %}

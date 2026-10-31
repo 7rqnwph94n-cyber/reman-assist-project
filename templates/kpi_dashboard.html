@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <h1>KPI Dashboard</h1>
+    <p class="subtitle">Key Performance Indicators for all jobs.</p>
+</div>
+
+<form method="get" class="card" style="padding: 1rem; margin-bottom: 1rem;">
+    <div class="grid" style="gap: 1rem;">
+        <div>
+            <label>Created from</label>
+            <input type="date" name="created_from" class="text-input" value="{{ filters.created_from }}">
+        </div>
+        <div>
+            <label>Created to</label>
+            <input type="date" name="created_to" class="text-input" value="{{ filters.created_to }}">
+        </div>
+        <div>
+            <label>Engine type</label>
+            <select name="engine_type" class="text-input">
+                <option value="">All</option>
+                {% for et in engine_types %}
+                    <option value="{{ et }}" {% if filters.engine_type == et %}selected{% endif %}>
+                        {{ et }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label>Technician</label>
+            <select name="technician" class="text-input">
+                <option value="">All</option>
+                {% for tech in technicians %}
+                    <option value="{{ tech.id }}" {% if filters.technician == tech.id|string %}selected{% endif %}>
+                        {{ tech.username }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div style="display: flex; gap: 0.5rem; align-items: flex-end;">
+            <button type="submit" class="button primary">Apply filters</button>
+            <a class="button secondary" href="{{ url_for('jobs.kpi_dashboard') }}">Clear</a>
+        </div>
+    </div>
+</form>
+
+<div class="grid-3">
+    <div class="card">
+        <h2>Total Jobs</h2>
+        <p style="font-size: 2.5rem; font-weight: bold; margin: 0;">{{ kpis.total_jobs or 0 }}</p>
+    </div>
+
+    <div class="card">
+        <h2>Average Job Age</h2>
+        <p style="font-size: 2.5rem; font-weight: bold; margin: 0;">{{ kpis.average_job_age or 0 }} <span style="font-size: 1.5rem;">days</span></p>
+        <p class="text-muted" style="margin-top: auto;">(for non-completed jobs)</p>
+    </div>
+
+    <div class="card">
+        <h2>Active Jobs</h2>
+        <p style="font-size: 2.5rem; font-weight: bold; margin: 0;">{{ kpis.active_jobs or 0 }}</p>
+        <p class="text-muted" style="margin-top: auto;">In process (not complete)</p>
+    </div>
+</div>
+
+<div class="grid-3">
+    <div class="card">
+        <h2>Jobs by Status</h2>
+        <ul class="compact-list" style="margin-top: 1rem;">
+            {% for status, count in kpis.jobs_by_status.items() %}
+            <li style="display: flex; justify-content: space-between; padding: 0.5rem 0;">
+                <span class="label">{{ status | replace('_', ' ') | title }}</span>
+                <span class="value" style="font-weight: bold;">{{ count }}</span>
+            </li>
+            {% else %}
+            <li>No jobs found.</li>
+            {% endfor %}
+        </ul>
+    </div>
+
+    <div class="card">
+        <h2>Parts Backlog</h2>
+        <ul class="compact-list" style="margin-top: 1rem;">
+            <li style="display: flex; justify-content: space-between; padding: 0.5rem 0;">
+                <span class="label">To order</span>
+                <span class="value" style="font-weight: bold;">{{ kpis.backlog_counts.to_order }}</span>
+            </li>
+            <li style="display: flex; justify-content: space-between; padding: 0.5rem 0;">
+                <span class="label">Ordered</span>
+                <span class="value" style="font-weight: bold;">{{ kpis.backlog_counts.ordered }}</span>
+            </li>
+            <li style="display: flex; justify-content: space-between; padding: 0.5rem 0;">
+                <span class="label">Backorder</span>
+                <span class="value" style="font-weight: bold;">{{ kpis.backlog_counts.backorder }}</span>
+            </li>
+        </ul>
+    </div>
+
+    <div class="card">
+        <h2>Throughput</h2>
+        <p style="font-size: 2.5rem; font-weight: bold; margin: 0;">{{ kpis.completed_in_range or 0 }}</p>
+        <p class="text-muted" style="margin-top: auto;">Completed in selected range</p>
+    </div>
+</div>
+
+<div class="card">
+    <h2>WIP Age Buckets</h2>
+    <p class="text-muted">Active jobs grouped by age.</p>
+    <ul class="compact-list" style="margin-top: 1rem;">
+        {% for label, count in kpis.wip_buckets.items() %}
+        <li style="display: flex; justify-content: space-between; padding: 0.5rem 0;">
+            <span class="label">{{ label }} days</span>
+            <span class="value" style="font-weight: bold;">{{ count }}</span>
+        </li>
+        {% endfor %}
+    </ul>
+</div>
+
+<div class="card">
+    <h2>Average Cycle Times</h2>
+    <p class="text-muted">Average time jobs spend in each status.</p>
+    {% if kpis.avg_cycle_times %}
+    <ul class="compact-list" style="margin-top: 1rem;">
+        {% for status, duration in kpis.avg_cycle_times.items() %}
+        <li style="display: flex; justify-content: space-between; padding: 0.5rem 0;">
+            <span class="label">{{ status | replace('_', ' ') | title }}</span>
+            <span class="value" style="font-weight: bold;">{{ duration }}</span>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="text-muted">Not enough data to calculate cycle times.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Top 5 Replaced Parts</h2>
+    {% if kpis.top_replaced_parts %}
+    <table class="strip-survey-table">
+        <thead>
+            <tr>
+                <th>Part No.</th>
+                <th>Name</th>
+                <th style="text-align: right;">Times Replaced</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for part in kpis.top_replaced_parts %}
+            <tr>
+                <td>{{ part.part_no }}</td>
+                <td>{{ part.name }}</td>
+                <td style="text-align: right;">{{ part.replace_count }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="text-muted">No replaced parts data.</p>
+    {% endif %}
+</div>
+
+{% endblock %}

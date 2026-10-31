@@ -1,0 +1,32 @@
+{% macro attachment_card(attachment) %}
+{% set path = attachment.file_path or attachment.filename or '' %}
+{% set name = attachment.original_filename or attachment.filename or path %}
+{% set lower = name|lower %}
+{% set is_img = lower.endswith('.png') or lower.endswith('.jpg') or lower.endswith('.jpeg')
+or lower.endswith('.gif') or lower.endswith('.webp') %}
+<div class="card" style="padding: 0.75rem;">
+    {% if is_img %}
+    <a href="{{ url_for('uploaded_file', filename=path) }}" target="_blank" rel="noopener">
+        <img src="{{ url_for('uploaded_file', filename=path) }}"
+             alt="{{ name }}"
+             style="width:100%; max-height:220px; object-fit:cover; border-radius: 0.5rem;">
+    </a>
+    {% else %}
+    <div class="text-muted" style="min-height: 120px; display:flex; align-items:center; justify-content:center;">
+        File
+    </div>
+    {% endif %}
+    <div style="margin-top: 0.6rem;">
+        <div style="font-size:0.9rem; word-break: break-word;">{{ name }}</div>
+        {% if attachment.uploaded_at %}
+        <div class="text-muted" style="font-size:0.8rem;">
+            {{ format_date(attachment.uploaded_at) }}
+        </div>
+        {% endif %}
+        <a class="button secondary" style="margin-top:0.5rem;"
+           href="{{ url_for('uploaded_file', filename=path) }}">
+            Download
+        </a>
+    </div>
+</div>
+{% endmacro %}

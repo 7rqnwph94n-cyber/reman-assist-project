@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Template: {{ template.name }}</h1>
+    <div class="actions">
+        <a class="button secondary" href="{{ url_for('templates_bp.templates_list') }}">
+            ← Back to templates
+        </a>
+        {% if enable_template_wizard %}
+            <a class="button" href="{{ url_for('templates_bp.template_wizard', template_id=template.id) }}">
+                Template Wizard
+            </a>
+        {% endif %}
+        <a class="button" href="{{ url_for('templates_bp.template_presurvey', template_id=template.id) }}">
+            {{ t('pre_inspection') }} form
+        </a>
+        <a class="button" href="{{ url_for('templates_bp.template_measurements', template_id=template.id) }}">
+            Measurements
+        </a>
+    </div>
+</div>
+
+{% if enable_template_costing %}
+    {# ─────────────────────────────────────────────
+       Upload costing sheet template (office)
+       ───────────────────────────────────────────── #}
+    <div class="card" style="margin-bottom: 1.5rem; padding: 1rem;">
+        <h2 style="margin-top: 0;">Costing sheet template</h2>
+        <p style="margin-bottom: 0.75rem;">
+            Upload the office costing spreadsheet (.xlsx). This saves a versioned Costing Template Profile
+            for this engine template. You can set sheet name and table start row now; column mapping comes later.
+        </p>
+        <form method="post" enctype="multipart/form-data" action="{{ url_for('templates_bp.template_costing_upload', template_id=template.id) }}">
+            {% include "_csrf.html" %}
+            <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
+                <div>
+                    <label class="field-label" for="costing_name">Profile name</label><br>
+                    <input
+                        id="costing_name"
+                        name="costing_name"
+                        type="text"
+                        class="text-input"
+                        placeholder="e.g. {{ template.name }} costing"
+                        style="min-width:240px;"
+                    >
+                </div>
+                <div>
+                    <label class="field-label" for="costing_sheet_name">Sheet name (optional)</label><br>
+                    <input
+                        id="costing_sheet_name"
+                        name="costing_sheet_name"
+                        type="text"
+                        class="text-input"
+                        placeholder="Sheet1"
+                        style="min-width:160px;"
+                    >
+                </div>
+                <div>
+                    <label class="field-label" for="costing_table_start_row">Table start row (optional)</label><br>
+                    <input
+                        id="costing_table_start_row"
+                        name="costing_table_start_row"
+                        type="number"
+                        class="text-input"
+                        placeholder="e.g. 12"
+                        style="width:120px;"
+                    >
+                </div>
+                <div>
+                    <label class="field-label" for="costing_file">Costing template (.xlsx or .csv)</label><br>
+                    <input type="file" id="costing_file" name="costing_file" accept=".xlsx,.xls,.csv" required>
+                </div>
+                <div>
+                    <button type="submit" class="button" style="margin-top:1.6rem;">Upload</button>
+                </div>
+                <div>
+                    <a class="button secondary" style="margin-top:1.6rem;" href="{{ url_for('costing.costing_catalogue', template_id=template.id) }}">Manage costing catalogue</a>
+                </div>
+            </div>
+        </form>
+    </div>
+{% endif %}
+
+{% include "_template_editor_form.html" %}
+{% endblock %}

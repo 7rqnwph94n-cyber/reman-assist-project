@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h1>Costing Catalogue – {{ template.name }}</h1>
+    <p class="text-muted">Edit supplier/cost/flags without re-uploading Excel. Profile version {{ profile.version }}.</p>
+    <div class="actions">
+        <a class="button secondary" href="{{ url_for('templates_bp.template_edit', template_id=template.id) }}">← Back to template</a>
+    </div>
+    <div class="text-muted" style="margin-top:0.25rem;">Source file: {{ profile.xlsx_template_path or '—' }}</div>
+</div>
+
+<form method="post">
+    {% include "_csrf.html" %}
+    <div class="card" style="padding:1rem;">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>System part</th>
+                    <th>OEM part</th>
+                    <th>Description</th>
+                    <th>Class</th>
+                    <th>Flags</th>
+                    <th>Intended supplier</th>
+                    <th>Latest supplier</th>
+                    <th>Latest cost</th>
+                    <th>Menu price</th>
+                    <th>Qty stock / order</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for line in lines %}
+                <tr>
+                    <td>{{ line.line_no or loop.index }}</td>
+                    <td>{{ line.system_part_number or '' }}</td>
+                    <td>{{ line.oem_part_no or '' }}</td>
+                    <td>{{ line.part_description or '' }}</td>
+                    <td>
+                        <select name="class_{{ line.id }}" class="text-input">
+                            {% for cls in LineClassEnum %}
+                                <option value="{{ cls.value }}" {% if line.default_class == cls %}selected{% endif %}>{{ cls.value }}</option>
+                            {% endfor %}
+                        </select>
+                    </td>
+                    <td style="white-space:nowrap;">
+                        <label><input type="checkbox" name="is_menu_{{ line.id }}" {% if line.is_menu %}checked{% endif %}> Menu</label><br>
+                        <label><input type="checkbox" name="is_kit_{{ line.id }}" {% if line.is_kit %}checked{% endif %}> Kit</label><br>
+                        <label><input type="checkbox" name="is_consumable_{{ line.id }}" {% if line.is_consumable %}checked{% endif %}> Consumable</label>
+                    </td>
+                    <td><input type="text" name="supplier_{{ line.id }}" class="text-input" value="{{ line.default_intended_supplier or '' }}"></td>
+                    <td><input type="text" name="latest_supplier_{{ line.id }}" class="text-input" value="{{ line.default_latest_supplier or '' }}"></td>
+                    <td><input type="number" step="0.01" name="latest_cost_{{ line.id }}" class="text-input" value="{{ line.default_latest_cost or '' }}"></td>
+                    <td><input type="number" step="0.01" name="menu_price_{{ line.id }}" class="text-input" value="{{ line.default_menu_sell_price or '' }}"></td>
+                    <td>
+                        <input type="number" name="qty_stock_{{ line.id }}" class="text-input" style="width:90px;" value="{{ line.default_qty_on_stock or 0 }}">
+                        /
+                        <input type="number" name="qty_order_{{ line.id }}" class="text-input" style="width:90px;" value="{{ line.default_qty_on_order or 0 }}">
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        <div style="margin-top:1rem;">
+            <button type="submit" class="button">Save catalogue</button>
+        </div>
+    </div>
+</form>
+{% endblock %}

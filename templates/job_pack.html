@@ -1,0 +1,320 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>{{ t('work_order') }} – Job {{ job.job_number }}</h1>
+{% if current_user.role in [RoleEnum.ADMIN, RoleEnum.OFFICE] %}
+    <div class="actions" style="margin-bottom: 1rem;">
+        <a class="button secondary" href="{{ url_for('jobs.job_report', job_id=job.id) }}">
+            View report
+        </a>
+        <a class="button" href="{{ url_for('jobs.job_report_pdf', job_id=job.id) }}">
+            Export PDF
+        </a>
+        <a class="button" href="{{ url_for('jobs.job_report_pack', job_id=job.id) }}">
+            Download pack (ZIP)
+        </a>
+        {% if parts|length == 0 %}
+            <form method="post" action="{{ url_for('jobs.job_regenerate_bom', job_id=job.id) }}" style="display:inline;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button
+                    type="submit"
+                    class="button secondary"
+                    onclick="return confirm('Regenerate {{ t('parts_list') }} from current {{ t('inspection') }} decisions? This will replace existing {{ t('parts_list_lines') }}.');"
+                    {{ testid("regen-bom")|safe }}
+                >
+                    Regenerate {{ t('parts_list_caps') }}
+                </button>
+            </form>
+        {% endif %}
+    </div>
+{% endif %}
+
+{# ───────── Top metadata card ───────── #}
+{% from "_job_meta_card.html" import job_meta_card with context %}
+{{ job_meta_card(job, with_pack_details=True, pre_photo_url=pre_photo_url) }}
+
+{# ───────── Summary tiles (Survey / Parts / Attachments) ───────── #}
+<div class="grid-3">
+<div class="card">
+    <h2>{{ t('strip_inspection') }}</h2>
+    {% set sc = survey_counts %}
+    <p>Total lines: <strong>{{ sc.total }}</strong></p>
+    <p>
+            Good: <strong>{{ sc.good }}</strong> ·
+            Replace: <strong>{{ sc.replace }}</strong> ·
+            Missing: <strong>{{ sc.scrap }}</strong> ·
+            Undecided: <strong>{{ sc.undecided }}</strong>
+        </p>
+        <p>
+            100% items: <strong>{{ sc.always }}</strong> ·
+            Big ticket: <strong>{{ sc.big_ticket }}</strong> ·
+            Test items: <strong>{{ sc.test }}</strong>
+        </p>
+        <a class="button" href="{{ url_for('survey.job_survey', job_id=job.id) }}">
+            {{ t('inspection_open') }}
+        </a>
+    </div>
+
+    <div class="card">
+        <h2>{{ t('parts_list_and') }}</h2>
+        <p>Total parts: <strong>{{ parts|length }}</strong></p>
+        <p>
+            To order:
+            <strong>
+                {{
+                    parts
+                    |selectattr('stock_status', 'equalto', StockStatusEnum.TO_ORDER)
+                    |list
+                    |length
+                }}
+            </strong>
+            · In stock:
+            <strong>
+                {{
+                    parts
+                    |selectattr('stock_status', 'equalto', StockStatusEnum.IN_STOCK)
+                    |list
+                    |length
+                }}
+            </strong>
+            · On order:
+            <strong>
+                {{
+                    parts
+                    |selectattr('stock_status', 'equalto', StockStatusEnum.ON_ORDER)
+                    |list
+                    |length
+                }}
+            </strong>
+        </p>
+        <a class="button" href="{{ url_for('parts.job_parts', job_id=job.id) }}">
+            Open parts list
+        </a>
+    </div>
+
+    <div class="card">
+        <h2>Attachments</h2>
+        <p>Total files: <strong>{{ attachments|length }}</strong></p>
+        {% if attachments %}
+            <ul class="compact-list">
+                {% for att in attachments[:5] %}
+                    <li>{{ att.filename }}</li>
+                {% endfor %}
+                {% if attachments|length > 5 %}
+                    <li>… +{{ attachments|length - 5 }} more</li>
+                {% endif %}
+            </ul>
+        {% else %}
+            <p class="text-muted">No files attached yet.</p>
+        {% endif %}
+        <a class="button" href="{{ url_for('jobs.job_attachments', job_id=job.id) }}">
+            View / upload files
+        </a>
+    </div>
+</div>
+
+{# ───────── Highlighted subsets: Big ticket / Test items / Pre-survey reman items ───────── #}
+<div class="grid-3">
+    <div class="card">
+        <h2>Big ticket items</h2>
+        {% set big_items = survey_items|selectattr('big_ticket')|list %}
+        {% if not big_items %}
+            <p class="text-muted">No big ticket items in this {{ t('inspection') }}.</p>
+        {% else %}
+            <ul class="compact-list">
+                {% for item in big_items[:8] %}
+                    <li>
+                        {{ item.part_no or "—" }} – {{ item.name or "Item" }}
+                        {% if item.decision %} ({{ item.decision.value }}){% endif %}
+                    </li>
+                {% endfor %}
+            </ul>
+            {% if big_items|length > 8 %}
+                <p class="text-muted">… +{{ big_items|length - 8 }} more</p>
+            {% endif %}
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <h2>Test items</h2>
+        {% set test_items = survey_items|selectattr('requires_test')|list %}
+        {% if not test_items %}
+            <p class="text-muted">No test items flagged.</p>
+        {% else %}
+            <ul class="compact-list">
+                {% for item in test_items[:8] %}
+                    <li>
+                        {{ item.part_no or "—" }} – {{ item.name or "Item" }}
+                        {% if item.decision %} ({{ item.decision.value }}){% endif %}
+                    </li>
+                {% endfor %}
+            </ul>
+            {% if test_items|length > 8 %}
+                <p class="text-muted">… +{{ test_items|length - 8 }} more</p>
+            {% endif %}
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <h2>{{ t('pre_inspection') }} reman items</h2>
+        {% set reman_codes = ['starter', 'alternator', 'turbo', 'hydraulic pump', 'hyd pump', 'air con pump', 'ac pump'] %}
+        {% set reman_items = [] %}
+        {% for item in survey_items %}
+            {% set name_lc = (item.name or '')|lower %}
+            {% if reman_items|length < 12 %}
+                {% for code in reman_codes %}
+                    {% if code in name_lc %}
+                        {% set _ = reman_items.append(item) %}
+                        {% set _ = '' %}
+                    {% endif %}
+                {% endfor %}
+            {% endif %}
+        {% endfor %}
+
+        {% if not reman_items %}
+            <p class="text-muted">No {{ t('pre_inspection_lower') }} reman items detected.</p>
+        {% else %}
+            <ul class="compact-list">
+                {% for item in reman_items[:8] %}
+                    <li>
+                        {{ item.part_no or "—" }} – {{ item.name or "Item" }}
+                        {% if item.decision %} ({{ item.decision.value }}){% endif %}
+                    </li>
+                {% endfor %}
+            </ul>
+            {% if reman_items|length > 8 %}
+                <p class="text-muted">… +{{ reman_items|length - 8 }} more</p>
+            {% endif %}
+        {% endif %}
+    </div>
+</div>
+
+{# ───────── Pre-survey results (if captured) ───────── #}
+<div class="card">
+    <h2>{{ t('pre_inspection') }} results</h2>
+    {% set has_data = presurvey_data and presurvey_data|length > 0 %}
+    {% if presurvey_completed_at %}
+        <p class="text-muted">Completed {{ format_date(presurvey_completed_at) }}</p>
+    {% else %}
+        <p class="text-muted">Not recorded.</p>
+    {% endif %}
+
+    {% if has_data %}
+        <ul class="compact-list">
+            {% for k, v in presurvey_data.items() %}
+                <li>
+                    <strong>{{ k }}</strong>:
+                    {% if v is sameas true %}Yes{% elif v is sameas false %}No{% else %}{{ v }}{% endif %}
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p class="text-muted">No checklist responses captured.</p>
+    {% endif %}
+
+    {% if presurvey_notes %}
+        <p><strong>Notes:</strong> {{ presurvey_notes }}</p>
+    {% endif %}
+
+    {% if pre_photo_url %}
+        <p class="text-muted">Arrival photo:</p>
+        <img src="{{ pre_photo_url }}" alt="Arrival photo" style="max-width: 240px; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+    {% endif %}
+</div>
+
+{# Nonconformance workflow removed #}
+
+{# ───────── Audit log (recent) ───────── #}
+<div class="card">
+    <h2>Recent activity (last 20)</h2>
+    {% if not audit_logs %}
+        <p class="text-muted">No activity recorded yet.</p>
+    {% else %}
+        <div class="table-scroll table-scroll-5">
+            <table class="strip-survey-table">
+                <thead>
+                    <tr>
+                        <th>When</th>
+                        <th>User</th>
+                        <th>Action</th>
+                        <th>Message</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in audit_logs %}
+                        <tr>
+                            <td>{{ format_date(log.created_at) }}</td>
+                            <td>
+                                {% if log.user %}
+                                    {{ log.user.username }}
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </td>
+                            <td>{{ log.action }}</td>
+                            <td>{{ log.message }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+</div>
+
+{# ───────── Release + Admin test helpers (same idea as before) ───────── #}
+{% if current_user.role in [RoleEnum.ADMIN, RoleEnum.OFFICE] %}
+<div class="card">
+    <h2>Release</h2>
+    {% if job.release_signed_at %}
+        <p class="text-muted">
+            Released on {{ format_date(job.release_signed_at) }} by
+            {{ job.release_signed_by.username if job.release_signed_by else "—" }}.
+        </p>
+    {% else %}
+        <form
+            method="post"
+            action="{{ url_for('jobs.release_job', job_id=job.id) }}"
+            onsubmit="return confirm('Sign and release this {{ t('work_order_lower') }}?');"
+            {{ testid("release-form")|safe }}
+        >
+            {% include "_csrf.html" %}
+            <button type="submit" class="button" {{ testid("release-submit")|safe }}>Sign & release {{ t('work_order_lower') }}</button>
+        </form>
+    {% endif %}
+</div>
+{% endif %}
+
+{% if current_user.role.value == 'Admin' %}
+<div class="card">
+    <h2>Admin test actions</h2>
+    <p class="text-muted">
+        Helpers for demos and testing. These only affect this job.
+    </p>
+    <div class="actions">
+        <form
+            method="post"
+            action="{{ url_for('jobs.admin_autofill_survey', job_id=job.id) }}"
+            class="inline-form"
+            onsubmit="return confirm('Auto-fill this {{ t('inspection') }} for testing?');"
+        >
+            {% include "_csrf.html" %}
+            <button type="submit" class="button">
+                Auto-fill {{ t('inspection') }} for testing
+            </button>
+        </form>
+
+        <form
+            method="post"
+            action="{{ url_for('jobs.admin_mark_all_good', job_id=job.id) }}"
+            class="inline-form"
+            onsubmit="return confirm('Mark ALL {{ t('inspection_lines') }} as Good for this job?');"
+        >
+            {% include "_csrf.html" %}
+            <button type="submit" class="button">
+                Mark all {{ t('inspection_lines') }} Good
+            </button>
+        </form>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,38 @@
+{
+  "name": "MAN",
+  "description": "MAN diesel engine parts catalog format",
+  "version": "1.0",
+  "detection": {
+    "keywords": ["D 0836", "D 2866", "D0836", "D2866", "MAN"],
+    "patterns": [
+      "D\\s*\\d{4}\\s+[A-Z]{1,3}\\d+",
+      "D\\s*\\d{4}\\s*#\\d+",
+      "D\\s*\\d{4}"
+    ]
+  },
+  "section_detection": {
+    "type": "header_text",
+    "patterns": [
+      "^D\\s*\\d{4}(\\s+[A-Z]{1,3}\\d+)?(\\s*#\\d+)?\\s+.+$"
+    ],
+    "min_font_size": 10
+  },
+  "table_structure": {
+    "columns": [
+      {"name": "pos", "aliases": ["Position", "Pos", "Item"]},
+      {"name": "part_no", "aliases": ["Part Number", "Teilenummer", "Part-No"]},
+      {"name": "name", "aliases": ["Description", "Bezeichnung", "Benennung"]},
+      {"name": "qty", "aliases": ["Quantity", "Menge", "Qty"]},
+      {"name": "notes", "aliases": ["Notes", "Bemerkungen", "Anmerkungen"]}
+    ],
+    "header_detection": "first_bold_row"
+  },
+  "image_extraction": {
+    "mode": "section_header",
+    "position": "above_table",
+    "min_width": 150,
+    "min_height": 150,
+    "file_pattern": "{section}_diagram_p{page}.png",
+    "notes": "Primary diagram per section, used by template wizard"
+  }
+}

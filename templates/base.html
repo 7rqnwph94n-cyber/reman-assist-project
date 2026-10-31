@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Reman Lean App</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='theme.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='components.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='mobile.css') }}" media="(max-width: 900px)">
+    <link rel="stylesheet" href="{{ url_for('static', filename='tablet.css') }}"
+          media="(min-width: 901px) and (max-width: 1194px)">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+</head>
+<body class="theme-portal">
+    <header class="top-bar">
+    <div class="brand">
+        <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo" class="brand-logo" onerror="this.style.display='none';">
+        <span class="version-tag">{{ APP_VERSION }}</span>
+    </div>
+
+        <nav class="nav">
+            {% if current_user %}
+                {% set role = current_user.role.value %}
+
+                {# -------- Main nav by role -------- #}
+
+                {# Admin + Office: full job + stores tooling #}
+                {% if role in ['Admin', 'Office'] %}
+                    <a href="{{ url_for('jobs.dashboard') }}" {{ testid("nav-dashboard")|safe }}>Dashboard</a>
+                    <a href="{{ url_for('jobs.job_create') }}" {{ testid("nav-create-job")|safe }}>Create Job</a>
+                    {% if role == 'Admin' %}
+                        <a href="{{ url_for('templates_bp.templates_list') }}" {{ testid("nav-templates")|safe }}>Templates</a>
+                    {% endif %}
+                    <a href="{{ url_for('stores.stores_hub', view='per_engine') }}" {{ testid("nav-stores")|safe }}>{{ t('parts_room') }}</a>
+
+                {# Stores: only Stores hub, no jobs/dashboard #}
+                {% elif role == 'Stores' %}
+                    <a href="{{ url_for('stores.stores_hub', view='master') }}" {{ testid("nav-stores")|safe }}>{{ t('parts_room') }}</a>
+
+                {# Technicians (and any other roles): jobs only #}
+                {% else %}
+                    <a href="{{ url_for('jobs.dashboard') }}" {{ testid("nav-dashboard")|safe }}>Dashboard</a>
+                    <a href="{{ url_for('jobs.jobs_list') }}" {{ testid("nav-jobs")|safe }}>All Jobs</a>
+                {% endif %}
+
+                {# -------- Admin dropdown -------- #}
+                {% if role == 'Admin' %}
+                    <div class="nav-admin-dropdown">
+                        <a class="nav-admin-trigger" href="{{ url_for('auth.users_list') }}">
+                            Admin ▾
+                        </a>
+                        <div class="nav-admin-menu">
+                            <a href="{{ url_for('jobs.kpi_dashboard') }}">KPI Dashboard</a>
+                            <a href="{{ url_for('auth.users_list') }}">User list</a>
+                            <a href="{{ url_for('auth.user_create') }}">Create user</a>
+                            {% if HAS_EPICOR_SETTINGS_ROUTE %}
+                                <a href="{{ url_for('epicor.epicor_settings') }}">Epicor setup</a>
+                            {% endif %}
+                            {% if HAS_QUICKBOOKS_SETTINGS_ROUTE %}
+                                <a href="{{ url_for('quickbooks.quickbooks_settings') }}">QuickBooks setup</a>
+                            {% endif %}
+                            <a href="{{ url_for('jobs.system_status') }}">System status</a>
+                        </div>
+                    </div>
+                {% endif %}
+
+                {# -------- Dev tools dropdown (temp) -------- #}
+                {% if DEV_TOOLS_ENABLED and real_user and real_user.role.value == 'Admin' %}
+                    <div class="nav-admin-dropdown">
+                        <a class="nav-admin-trigger" href="{{ url_for('dev_tools.dev_tools_home') }}">
+                            Dev ▾
+                        </a>
+                        <div class="nav-admin-menu">
+                            <a href="{{ url_for('dev_tools.dev_tools_home') }}">Dev tools</a>
+                            <form method="post" action="{{ url_for('dev_tools.dev_role_set') }}" class="nav-admin-form">
+                                {% include "_csrf.html" %}
+                                <input type="hidden" name="role" value="Admin">
+                                <button type="submit">View as Admin</button>
+                            </form>
+                            <form method="post" action="{{ url_for('dev_tools.dev_role_set') }}" class="nav-admin-form">
+                                {% include "_csrf.html" %}
+                                <input type="hidden" name="role" value="Office">
+                                <button type="submit">View as Office</button>
+                            </form>
+                            <form method="post" action="{{ url_for('dev_tools.dev_role_set') }}" class="nav-admin-form">
+                                {% include "_csrf.html" %}
+                                <input type="hidden" name="role" value="Stores">
+                                <button type="submit">View as {{ t('parts_room') }}</button>
+                            </form>
+                            <form method="post" action="{{ url_for('dev_tools.dev_role_set') }}" class="nav-admin-form">
+                                {% include "_csrf.html" %}
+                                <input type="hidden" name="role" value="Technician">
+                                <button type="submit">View as Technician</button>
+                            </form>
+                            <form method="post" action="{{ url_for('dev_tools.dev_fill_measurements') }}" class="nav-admin-form dev-job-form">
+                                {% include "_csrf.html" %}
+                                <input type="hidden" name="job_id" class="dev-job-id" value="">
+                                <button type="submit">Fill measurements (current job)</button>
+                            </form>
+                            <form method="post" action="{{ url_for('dev_tools.dev_complete_survey') }}" class="nav-admin-form dev-job-form">
+                                {% include "_csrf.html" %}
+                                <input type="hidden" name="job_id" class="dev-job-id" value="">
+                                <button type="submit">Complete {{ t('inspection') }} (current job)</button>
+                            </form>
+                            <form method="post" action="{{ url_for('dev_tools.dev_role_clear') }}" class="nav-admin-form">
+                                {% include "_csrf.html" %}
+                                <button type="submit">Clear role override</button>
+                            </form>
+                        </div>
+                    </div>
+                {% endif %}
+
+                {# -------- User pill + logout -------- #}
+                <span class="user-pill">
+                    {{ current_user.username }} ({{ current_user.role.value }})
+                </span>
+                {% if DEV_TOOLS_ENABLED and session.get('dev_role_override') %}
+                    <span class="user-pill">Dev role: {{ session.get('dev_role_override') }}</span>
+                {% endif %}
+                <a href="#" id="theme-toggle" class="nav-toggle">Toggle theme</a>
+                <a href="{{ url_for('auth.logout') }}">Logout</a>
+            {% endif %}
+        </nav>
+    </header>
+
+    <main class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <div class="flash-container">
+              {% for category, message in messages %}
+                <div class="flash flash-{{ category }}">{{ message }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="app-footer">
+        <span>Designed and Built by Rich Brotherton © 2025</span>
+    </footer>
+
+    <script nonce="{{ csp_nonce() }}">
+      (function() {
+        const btn = document.getElementById('theme-toggle');
+        if (!btn) return;
+        btn.addEventListener('click', () => {
+          const body = document.body;
+          const isLight = body.classList.contains('theme-light');
+          if (isLight) {
+            body.classList.remove('theme-light');
+            body.classList.add('theme-portal');
+            localStorage.setItem('theme', 'dark');
+          } else {
+            body.classList.add('theme-light');
+            body.classList.remove('theme-portal');
+            localStorage.setItem('theme', 'light');
+          }
+        });
+
+        // Restore from localStorage
+        const saved = localStorage.getItem('theme');
+        if (saved === 'light') {
+          document.body.classList.add('theme-light');
+          document.body.classList.remove('theme-portal');
+        }
+      })();
+
+      // Auto-inject CSRF token into all POST forms (including dynamically added)
+      (function() {
+        const token = document.querySelector('meta[name=\"csrf-token\"]')?.getAttribute('content');
+        if (!token) return;
+
+        function ensureCsrf(form) {
+          if (!form) return;
+          if ((form.method || '').toLowerCase() !== 'post') return;
+          if (form.querySelector('input[name=\"csrf_token\"]')) return;
+          const hidden = document.createElement('input');
+          hidden.type = 'hidden';
+          hidden.name = 'csrf_token';
+          hidden.value = token;
+          form.appendChild(hidden);
+        }
+
+        document.querySelectorAll('form').forEach(ensureCsrf);
+
+        const observer = new MutationObserver((mutations) => {
+          for (const mutation of mutations) {
+            for (const node of mutation.addedNodes || []) {
+              if (!(node instanceof HTMLElement)) continue;
+              if (node.tagName === 'FORM') {
+                ensureCsrf(node);
+              } else {
+                node.querySelectorAll?.('form').forEach(ensureCsrf);
+              }
+            }
+          }
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+      })();
+
+      // Set dev tools job id from URL if present (e.g., /jobs/<id>/survey)
+      (function() {
+        const match = window.location.pathname.match(/\\/jobs\\/(\\d+)/);
+        if (!match) return;
+        const jobId = match[1];
+        const inputs = document.querySelectorAll('.dev-job-id');
+        for (const input of inputs) {
+          input.value = jobId;
+        }
+      })();
+    </script>
+</body>
+</html>

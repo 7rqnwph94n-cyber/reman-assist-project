@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Job {{ job.job_number }}</h1>
+
+{% from "_job_meta_card.html" import job_meta_card with context %}
+{{ job_meta_card(job) }}
+
+<div class="grid-3">
+    <div class="card">
+        <h2>{{ t('strip_inspection') }}</h2>
+        <p>{{ survey_items|length }} line{{ '' if survey_items|length == 1 else 's' }}</p>
+        <a class="button" href="{{ url_for('survey.job_survey', job_id=job.id) }}" {{ testid("open-survey")|safe }}>
+            {{ t('inspection_open') }}
+        </a>
+    </div>
+
+    <div class="card">
+        <h2>Parts list</h2>
+        <p>{{ parts|length }} part{{ '' if parts|length == 1 else 's' }}</p>
+        <a class="button" href="{{ url_for('parts.job_parts', job_id=job.id) }}" {{ testid("open-parts")|safe }}>
+            Open parts list
+        </a>
+    </div>
+
+    <div class="card">
+        <h2>Build &amp; notes</h2>
+        <p>Build status: {{ job.status.value }}</p>
+        <a class="button" href="{{ url_for('jobs.job_build', job_id=job.id) }}" {{ testid("open-build")|safe }}>
+            Open build view
+        </a>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Attachments &amp; export</h2>
+    <p>
+        {{ attachments|length }} file{{ '' if attachments|length == 1 else 's' }} attached
+    </p>
+
+    <div class="actions">
+        <a class="button" href="{{ url_for('jobs.job_attachments', job_id=job.id) }}" {{ testid("open-attachments")|safe }}>
+            View / upload files
+        </a>
+
+        {% if current_user.role.value in ['Admin', 'Office'] %}
+            <a class="button" href="{{ url_for('jobs.job_export', job_id=job.id) }}" {{ testid("export-job-pack")|safe }}>
+                Export {{ t('work_order_lower') }} (ZIP)
+            </a>
+        {% endif %}
+    </div>
+</div>
+
+{% if current_user.role.value == 'Admin' %}
+<div class="card">
+    <h2>Admin: Status override</h2>
+    <form method="post" action="{{ url_for('jobs.admin_override_status', job_id=job.id) }}">
+        {% include "_csrf.html" %}
+        <div class="form-row">
+            <label for="status">New status</label>
+            <select name="status" id="status">
+                {% for st in JobStatusEnum %}
+                    <option value="{{ st.value }}" {% if st == job.status %}selected{% endif %}>
+                        {{ st.value }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-row">
+            <label for="reason">Reason</label>
+            <input type="text" id="reason" name="reason" placeholder="Why are you overriding?" />
+        </div>
+        <button type="submit" class="button">Update status</button>
+    </form>
+</div>
+{% endif %}
+
+{# Optional: keep admin helpers, but ONLY if you really want them #}
+{# 
+{% if current_user.role.value == 'Admin' %}
+<div class="card">
+    <h2>Admin test actions</h2>
+    <p class="text-muted">
+        Handy helpers for demos and testing. These only affect this job.
+    </p>
+    <div class="actions">
+        <form
+            method="post"
+            action="{{ url_for('jobs.admin_autofill_survey', job_id=job.id) }}"
+            class="inline-form"
+            onsubmit="return confirm('Auto-fill this survey for testing?');"
+        >
+            {% include "_csrf.html" %}
+            <button type="submit" class="button">
+                Auto-fill survey for testing
+            </button>
+        </form>
+
+        <form
+            method="post"
+            action="{{ url_for('jobs.admin_mark_all_good', job_id=job.id) }}"
+            class="inline-form"
+            onsubmit="return confirm('Mark ALL survey lines as Good for this job?');"
+        >
+            {% include "_csrf.html" %}
+            <button type="submit" class="button">
+                Mark all survey lines Good
+            </button>
+        </form>
+    </div>
+</div>
+{% endif %}
+#}
+
+{% endblock %}

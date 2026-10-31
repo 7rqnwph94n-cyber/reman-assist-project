@@ -1,0 +1,581 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Template Wizard: {{ template.name }}</h1>
+    <div class="actions">
+        <a class="button secondary" href="{{ url_for('templates_bp.template_edit', template_id=template.id) }}">← Back to template</a>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom:1rem;">
+    <div style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
+        <a class="pill {% if step == '1' %}pill-active{% endif %}" href="{{ url_for('templates_bp.template_wizard', template_id=template.id, step='1') }}">Step 1 · Import</a>
+        <a class="pill {% if step == '2' %}pill-active{% endif %}" href="{{ url_for('templates_bp.template_wizard', template_id=template.id, step='2') }}">Step 2 · Rules</a>
+        <a class="pill {% if step == '3' %}pill-active{% endif %}" href="{{ url_for('templates_bp.template_wizard', template_id=template.id, step='3') }}">Step 3 · Exploded View</a>
+        <a class="pill {% if step == '4' %}pill-active{% endif %}" href="{{ url_for('templates_bp.template_wizard', template_id=template.id, step='4') }}">Step 4 · Assembly Log</a>
+        <a class="pill {% if step == '5' %}pill-active{% endif %}" href="{{ url_for('templates_bp.template_wizard', template_id=template.id, step='5') }}">Step 5 · Measurements</a>
+        <a class="pill {% if step == '6' %}pill-active{% endif %}" href="{{ url_for('templates_bp.template_wizard', template_id=template.id, step='6') }}">Step 6 · Torque</a>
+    </div>
+    <div class="text-muted" style="margin-top:0.5rem;">Status: {{ wizard.status }}</div>
+</div>
+
+{% if step == '1' %}
+<div class="card">
+    <h2 style="margin-top:0;">Step 1 — Import Assets</h2>
+    <p class="text-muted">Lane A preserves the existing flow: upload the CSV and a folder (or ZIP) of JPEG/PNG files named by section code. Canonical parts/occurrences are generated automatically.</p>
+
+    <div style="display:grid; gap:1rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); margin-top:0.75rem;">
+        <div class="card" style="padding:0.85rem;">
+            <h3 style="margin-top:0;">Lane A: CSV Parts List</h3>
+            <form method="post" enctype="multipart/form-data">
+                {% include "_csrf.html" %}
+                <input type="hidden" name="action" value="wizard_import_csv">
+                <input type="file" name="file" accept=".csv,.xlsx,.xls" required>
+                <label style="display:block; margin-top:0.5rem;">
+                    <input type="checkbox" name="replace_existing" checked> Replace existing rows
+                </label>
+                <button type="submit" class="button secondary" style="margin-top:0.75rem;">Import CSV</button>
+            </form>
+        </div>
+
+        <div class="card" style="padding:0.85rem;">
+            <h3 style="margin-top:0;">Lane A: Diagram Image Folder</h3>
+            <p class="text-muted">Upload a folder of images named by section code (e.g., TA0100.jpg).</p>
+            <form method="post" enctype="multipart/form-data">
+                {% include "_csrf.html" %}
+                <input type="hidden" name="action" value="wizard_upload_images_folder">
+                <input type="file" name="image_folder" accept=".png,.jpg,.jpeg,.webp,.gif" webkitdirectory directory multiple required>
+                <button type="submit" class="button secondary" style="margin-top:0.75rem;">Upload Folder</button>
+            </form>
+
+            <form method="post" enctype="multipart/form-data" style="margin-top:0.75rem;">
+                {% include "_csrf.html" %}
+                <input type="hidden" name="action" value="wizard_upload_images_zip">
+                <label class="field-label">Or upload a ZIP</label>
+                <input type="file" name="image_zip" accept=".zip" required>
+                <button type="submit" class="button secondary" style="margin-top:0.75rem;">Upload ZIP</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="card" style="padding:0.85rem; margin-top:1rem;">
+        <h3 style="margin-top:0;">Lane B: PDF Import (Extractor)</h3>
+        <p class="text-muted">Upload a PDF to extract parts and populate sections automatically.</p>
+        <div class="text-muted" style="margin-bottom:0.75rem;">
+            This will delete {{ pdf_wipe_item_count }} template items and {{ pdf_wipe_page_count }} illustration page(s).
+        </div>
+        {% if pdf_active_jobs_count %}
+            <div class="text-muted" style="margin-bottom:0.75rem;">
+                Wipe is blocked: {{ pdf_active_jobs_count }} active job(s) use this template.
+            </div>
+        {% endif %}
+        {% if pdf_profiles_error %}
+            <div class="text-muted" style="margin-bottom:0.75rem;">{{ pdf_profiles_error }}</div>
+        {% endif %}
+        <form method="post" enctype="multipart/form-data">
+            {% include "_csrf.html" %}
+            <input type="hidden" name="action" value="wizard_import_pdf">
+            <div style="display:flex; gap:1rem; flex-wrap:wrap; align-items:flex-end;">
+                <div>
+                    <label class="field-label">PDF File</label>
+                    <input type="file" name="pdf_file" accept="application/pdf" required>
+                </div>
+                <div>
+                    <label class="field-label">Profile</label>
+                    <select name="pdf_profile" class="status-select">
+                        <option value="auto">auto</option>
+                        {% for profile in pdf_profiles %}
+                            {% if profile != "auto" %}
+                                <option value="{{ profile }}">{{ profile }}</option>
+                            {% endif %}
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="field-label">Type WIPE to confirm</label>
+                    <input type="text" name="wipe_confirm_text" class="text-input" placeholder="WIPE">
+                </div>
+                <label style="display:block;">
+                    <input type="checkbox" name="confirm_wipe" value="1"> I understand this deletes existing items and diagrams.
+                </label>
+                <label style="display:block;">
+                    <input type="checkbox" name="pdf_debug" value="1"> Keep extractor temp files (debug)
+                </label>
+                <div>
+                    <button type="submit" class="button secondary" {% if pdf_active_jobs_count %}disabled{% endif %}>Import PDF</button>
+                </div>
+            </div>
+        </form>
+    </div>
+    <div class="card" style="padding:0.85rem; margin-top:1rem;">
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap; justify-content:space-between;">
+            <a class="button secondary" href="{{ url_for('templates_bp.template_edit', template_id=template.id) }}">← Back</a>
+            <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+            {% if step_status.get('step1', {}).get('complete') %}
+                <a class="button secondary" href="{{ url_for('templates_bp.template_wizard', template_id=template.id, step='2') }}">Next step</a>
+            {% else %}
+                <button type="button" class="button secondary" disabled>Next step (locked)</button>
+            {% endif %}
+            </div>
+        </div>
+    </div>
+{% endif %}
+
+
+{% if step == '2' %}
+<div class="card">
+    <h2 style="margin-top:0;">Step 2 — Categorise + Rules</h2>
+    <p class="text-muted">Using the proven template editor for rule and line editing.</p>
+</div>
+{% set return_to_wizard = True %}
+{% set return_step = '2' %}
+{% include "_template_editor_form.html" %}
+<div class="card" style="margin-top:1rem;">
+    <div style="display:flex; gap:0.5rem; flex-wrap:wrap; justify-content:space-between;">
+        <a class="button secondary" href="{{ url_for('templates_bp.template_wizard', template_id=template.id, step='1') }}">← Back</a>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+        <form method="post" style="margin:0;">
+            {% include "_csrf.html" %}
+            <input type="hidden" name="action" value="wizard_complete_step2">
+            <button type="submit" class="button secondary">Mark Step 2 Complete</button>
+        </form>
+        {% if step_status.get('step2', {}).get('complete') %}
+            <a class="button secondary" href="{{ url_for('templates_bp.template_wizard', template_id=template.id, step='3') }}">Next step</a>
+        {% else %}
+            <button type="button" class="button secondary" disabled>Next step (locked)</button>
+        {% endif %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if step == '3' %}
+<div class="card">
+    <h2 style="margin-top:0;">Step 3 — Exploded View Wizard</h2>
+    <p class="text-muted">Use the per-section tools to place POS labels and draw hotspots on the existing diagram.</p>
+    <table class="strip-survey-table" style="margin-top:0.75rem;">
+        <thead>
+                <tr>
+                    <th style="width:90px;">Order</th>
+                    <th>Status</th>
+                    <th>Section</th>
+                    <th style="width:140px; text-align:center;">Confirmed</th>
+                    <th style="width:360px;">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for section in sections %}
+            <tr>
+                <td>{{ loop.index }}</td>
+                <td>
+                    {% set name_parts = section.name.split(" ") %}
+                    {% set section_code = (name_parts[0] ~ name_parts[1]) if name_parts|length >= 2 else section.name %}
+                    {% set legacy_img = section_images.get(section.name) or section_images.get(section_code) %}
+                    {% if illustration_pages_by_section.get(section.name) %}
+                        Illustration attached
+                    {% elif legacy_img %}
+                        Legacy image detected
+                    {% else %}
+                        No illustration yet
+                    {% endif %}
+                </td>
+                <td>{{ section.name }}</td>
+                <td style="text-align:center;">
+                    {% set status = illustration_status_by_section.get(section.name, {}) %}
+                    {% if status.get('has_any') %}
+                        <span class="pill" style="padding:2px 6px; font-size:0.72rem; background:#0f3a2a; border:1px solid #2fd081; color:#9af2c9;">
+                            {% if status.get('labels', 0) %}POS{% endif %}
+                            {% if status.get('labels', 0) and status.get('hotspots', 0) %} + {% endif %}
+                            {% if status.get('hotspots', 0) %}Hotspots{% endif %}
+                            ✓
+                        </span>
+                    {% else %}
+                        <span class="text-muted">—</span>
+                    {% endif %}
+                </td>
+                <td style="display:flex; gap:0.35rem; flex-wrap:wrap;">
+                    {% set page = illustration_pages_by_section.get(section.name) %}
+                    <a class="button secondary small" href="{{ url_for('illustrations_bp.illustration_wizard', template_id=template.id, section_id=section.id, step='0', page_id=page.id if page else None) }}">
+                        Overview
+                    </a>
+                    <a class="button secondary small" href="{{ url_for('illustrations_bp.illustration_wizard', template_id=template.id, section_id=section.id, step='4', page_id=page.id if page else None) }}">
+                        POS Labels
+                    </a>
+                    <a class="button secondary small" href="{{ url_for('illustrations_bp.illustration_wizard', template_id=template.id, section_id=section.id, step='5', page_id=page.id if page else None) }}">
+                        Hotspots
+                    </a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+<div class="card" style="margin-top:1rem;">
+    <div style="display:flex; gap:0.5rem; flex-wrap:wrap; justify-content:space-between;">
+        <a class="button secondary" href="{{ url_for('templates_bp.template_wizard', template_id=template.id, step='2') }}">← Back</a>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+        <form method="post" style="margin:0;">
+            {% include "_csrf.html" %}
+            <input type="hidden" name="action" value="wizard_complete_step3">
+            <button type="submit" class="button secondary">Mark Step 3 Complete</button>
+        </form>
+        {% if step_status.get('step3', {}).get('complete') %}
+            <a class="button secondary" href="{{ url_for('templates_bp.template_wizard', template_id=template.id, step='4') }}">Next step</a>
+        {% else %}
+            <button type="button" class="button secondary" disabled>Next step (locked)</button>
+        {% endif %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if step == '5' %}
+<div class="card">
+    <h2 style="margin-top:0;">Step 5 — Measurements &amp; Limits</h2>
+    <p class="text-muted">Only items tagged “Measure” appear here. Qty > 1 produces multiple rows with an “apply to all” helper.</p>
+</div>
+
+<form method="post">
+    {% include "_csrf.html" %}
+    <div class="card" style="margin-top:1rem;">
+        {% if measurement_rows %}
+            <table class="strip-survey-table">
+                <thead>
+                    <tr>
+                        <th style="width:160px;">Section</th>
+                        <th style="width:70px;">Pos</th>
+                        <th>Part</th>
+                        <th style="width:70px;">Inst</th>
+                        <th style="width:180px;">Label</th>
+                        <th style="width:90px;">Unit ({{ unit_hint('length') }})</th>
+                        <th style="width:90px;">Min</th>
+                        <th style="width:90px;">Max</th>
+                        <th style="width:120px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% set ns = namespace(current_section=None) %}
+                    {% for row in measurement_rows %}
+                        {% if row.section != ns.current_section %}
+                            {% set ns.current_section = row.section %}
+                            <tr class="section-header" data-section-key="{{ row.section|e }}">
+                                <td colspan="9">
+                                    <div style="display:flex; align-items:center; gap:0.5rem;">
+                                        <span>{{ row.section }}</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endif %}
+                        <tr class="measurement-row" data-section-key="{{ row.section|e }}" data-item-id="{{ row.item.id }}" data-idx="{{ row.index }}">
+                            <td>{{ row.section }}</td>
+                            <td>{{ row.item.pos or '' }}</td>
+                            <td>
+                                <div>{{ row.item.part_no or '' }}</div>
+                                <div class="text-muted" style="font-size:0.8rem;">{{ row.item.name or '' }}</div>
+                            </td>
+                            <td>{{ row.index }} / {{ row.qty }}</td>
+                            <td>
+                                <input type="text" class="text-input" name="label_{{ row.item.id }}_{{ row.index }}" value="{{ row.label or '' }}">
+                            </td>
+                            <td>
+                                <input type="text" class="text-input" name="unit_{{ row.item.id }}_{{ row.index }}" value="{{ row.unit or '' }}" placeholder="{{ unit_hint('length') }}" style="max-width:90px;">
+                            </td>
+                            <td>
+                                <input type="number" step="any" class="text-input" name="min_{{ row.item.id }}_{{ row.index }}" value="{{ row.min if row.min is not none else '' }}" style="max-width:90px;">
+                            </td>
+                            <td>
+                                <input type="number" step="any" class="text-input" name="max_{{ row.item.id }}_{{ row.index }}" value="{{ row.max if row.max is not none else '' }}" style="max-width:90px;">
+                            </td>
+                            <td>
+                                {% if row.index == 1 and row.qty > 1 %}
+                                    <button type="button" class="button secondary small apply-all" data-item-id="{{ row.item.id }}">Apply to all</button>
+                                {% else %}
+                                    <span class="text-muted">—</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <div class="text-muted">No measured items yet. Tag items as “Measure” in Step 2.</div>
+        {% endif %}
+    </div>
+
+    <div class="card" style="margin-top:1rem;">
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap; justify-content:space-between;">
+            <a class="button secondary" href="{{ url_for('templates_bp.template_wizard', template_id=template.id, step='4') }}">← Back</a>
+            <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+            <button type="submit" class="button secondary" name="action" value="wizard_save_measurements">Save Measurements</button>
+            <button type="submit" class="button secondary" name="action" value="wizard_complete_step5">Mark Step 5 Complete</button>
+            {% if step_status.get('step5', {}).get('complete') %}
+                <a class="button secondary" href="{{ url_for('templates_bp.template_wizard', template_id=template.id, step='6') }}">Next step</a>
+            {% else %}
+                <button type="button" class="button secondary" disabled>Next step (locked)</button>
+            {% endif %}
+            </div>
+        </div>
+    </div>
+</form>
+
+<script nonce="{{ csp_nonce() }}">
+(() => {
+  const applyButtons = document.querySelectorAll('.apply-all');
+  applyButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const itemId = btn.getAttribute('data-item-id');
+      if (!itemId) return;
+      const rows = Array.from(document.querySelectorAll('.measurement-row[data-item-id="' + itemId + '"]'));
+      if (rows.length < 2) return;
+      const first = rows[0];
+      const values = {
+        label: first.querySelector('input[name^="label_"]')?.value || '',
+        unit: first.querySelector('input[name^="unit_"]')?.value || '',
+        min: first.querySelector('input[name^="min_"]')?.value || '',
+        max: first.querySelector('input[name^="max_"]')?.value || '',
+      };
+      rows.forEach((row, idx) => {
+        if (idx === 0) return;
+        const label = row.querySelector('input[name^="label_"]');
+        const unit = row.querySelector('input[name^="unit_"]');
+        const min = row.querySelector('input[name^="min_"]');
+        const max = row.querySelector('input[name^="max_"]');
+        if (label) label.value = values.label;
+        if (unit) unit.value = values.unit;
+        if (min) min.value = values.min;
+        if (max) max.value = values.max;
+      });
+    });
+  });
+
+  const headers = document.querySelectorAll('tr.section-header');
+  headers.forEach(header => {
+    header.style.cursor = 'pointer';
+  });
+  document.addEventListener('click', (event) => {
+    const header = event.target.closest('tr.section-header');
+    if (!header) return;
+    const key = header.getAttribute('data-section-key');
+    const isCollapsed = header.classList.toggle('collapsed');
+    document.querySelectorAll(
+      'tr.measurement-row[data-section-key="' + key + '"]'
+    ).forEach(row => {
+      row.style.display = isCollapsed ? 'none' : '';
+    });
+  });
+  headers.forEach(header => {
+    const key = header.getAttribute('data-section-key');
+    const rows = document.querySelectorAll(
+      'tr.measurement-row[data-section-key="' + key + '"]'
+    );
+    header.classList.add('collapsed');
+    rows.forEach(row => {
+      row.style.display = 'none';
+    });
+  });
+})();
+</script>
+{% endif %}
+
+{% if step == '4' %}
+<div class="card">
+    <h2 style="margin-top:0;">Step 4 — Assembly Log</h2>
+    <p class="text-muted">Flag which items require torque, build measurements, or photos during assembly.</p>
+    <form method="post">
+        {% include "_csrf.html" %}
+        <input type="hidden" name="action" value="wizard_save_checklist">
+        <div class="template-bubble">
+            <div class="template-scroll">
+                <table class="strip-survey-table">
+                    <thead>
+                        <tr>
+                            <th style="width:70px;">Section</th>
+                            <th style="width:60px;">Pos</th>
+                            <th style="width:110px;">Part no</th>
+                            <th style="min-width:220px;">Name</th>
+                            <th style="width:120px; text-align:center;">Requires Torque</th>
+                            <th style="width:120px; text-align:center;">Build Measure</th>
+                            <th style="width:100px; text-align:center;">Photo</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% set ns = namespace(current_section = None) %}
+                        {% for item in checklist_items %}
+                            {% if item.section != ns.current_section %}
+                                {% set ns.current_section = item.section %}
+                                {% set section_label = (item.section or 'General')|trim %}
+                                {% set section_code = section_label|replace(' ', '')|replace('-', '')|replace('/', '')|upper %}
+                                {% set name_parts = section_label.split(" ") %}
+                                {% set section_code_short = (name_parts[0] ~ name_parts[1]) if name_parts|length >= 2 else section_label %}
+                                {% set img_url = (
+                                    illustrations_by_section.get(section_label)
+                                    or section_images.get(section_label)
+                                    or section_images.get(section_code_short)
+                                    or section_images.get(section_code)
+                                    or section_images.get(section_label|upper)
+                                ) %}
+                                <tr class="section-header" data-section-key="{{ section_label|e }}">
+                                    <td colspan="7">
+                                        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem;">
+                                            <span>{{ section_label }}</span>
+                                            <button type="button" class="button tiny" data-toggle-section="{{ section_label|e }}">Toggle</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% if img_url %}
+                                    <tr class="section-image-row" data-section-key="{{ section_label|e }}">
+                                        <td colspan="7">
+                                            <div class="section-diagram" style="margin:0; text-align:center;">
+                                                <img src="{{ img_url }}" alt="{{ section_label }} diagram" style="max-width:100%; border-radius:8px; display:block; margin:0 auto;">
+                                            </div>
+                                        </td>
+                                    </tr>
+                                {% endif %}
+                            {% endif %}
+                            <tr>
+                                <td>{{ item.section }}</td>
+                                <td>{{ item.pos }}</td>
+                                <td>{{ item.part_no }}</td>
+                                <td>{{ item.name }}</td>
+                                <td style="text-align:center;">
+                                    <input type="checkbox" name="requires_torque_{{ item.id }}" {% if item.requires_torque %}checked{% endif %}>
+                                </td>
+                                <td style="text-align:center;">
+                                    <input type="checkbox" name="requires_build_measure_{{ item.id }}" {% if item.requires_build_measure %}checked{% endif %}>
+                                </td>
+                                <td style="text-align:center;">
+                                    <input type="checkbox" name="requires_photo_{{ item.id }}" {% if item.requires_photo %}checked{% endif %}>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.75rem;">
+            <button type="submit" class="button secondary">Save Assembly Log</button>
+        </div>
+    </form>
+
+    <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.75rem; justify-content:space-between;">
+        <a class="button secondary" href="{{ url_for('templates_bp.template_wizard', template_id=template.id, step='3') }}">← Back</a>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+        <form method="post" style="margin:0;">
+            {% include "_csrf.html" %}
+            <input type="hidden" name="action" value="wizard_complete_step4">
+            <button type="submit" class="button secondary">Mark Step 4 Complete</button>
+        </form>
+        {% if step_status.get('step4', {}).get('complete') %}
+            <a class="button secondary" href="{{ url_for('templates_bp.template_wizard', template_id=template.id, step='5') }}">Next step</a>
+        {% else %}
+            <button type="button" class="button secondary" disabled>Next step (locked)</button>
+        {% endif %}
+        </div>
+    </div>
+</div>
+
+<script nonce="{{ csp_nonce() }}">
+(() => {
+  const toggles = document.querySelectorAll('[data-toggle-section]');
+  for (const toggle of toggles) {
+    toggle.addEventListener('click', () => {
+      const key = toggle.getAttribute('data-toggle-section');
+      if (!key) return;
+      const rows = document.querySelectorAll(`[data-section-key="${key}"]`);
+      for (const row of rows) {
+        if (row.classList.contains('section-header')) continue;
+        row.style.display = row.style.display === 'none' ? '' : 'none';
+      }
+    });
+  }
+})();
+</script>
+{% endif %}
+
+{% if step == '6' %}
+<div class="card">
+    <h2 style="margin-top:0;">Step 6 — Torque Data Entry</h2>
+    <p class="text-muted">Only items flagged as requires torque are listed here.</p>
+    <form method="post">
+        {% include "_csrf.html" %}
+        <input type="hidden" name="action" value="wizard_save_torque">
+        <table class="strip-survey-table">
+            <thead>
+                <tr>
+                    <th>Section</th>
+                    <th>Pos</th>
+                    <th>Part no</th>
+                    <th>Name</th>
+                    <th>Torque</th>
+                    <th>Unit</th>
+                    <th>Seq</th>
+                    <th>Assembly Notes</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in torque_items %}
+                    <tr>
+                        <td>{{ item.section }}</td>
+                        <td>{{ item.pos }}</td>
+                        <td>{{ item.part_no }}</td>
+                        <td>{{ item.name }}</td>
+                        <td>
+                            <input type="number" step="0.01" name="torque_value_{{ item.id }}" value="{{ item.torque_value if item.torque_value is not none else '' }}" style="width:90px;">
+                        </td>
+                        <td>
+                            <input type="text" name="torque_unit_{{ item.id }}" value="{{ item.torque_unit or 'Nm' }}" style="width:60px;">
+                        </td>
+                        <td>
+                            <div style="display:flex; gap:0.25rem; align-items:center;">
+                                <button type="button" class="button tiny" data-seq-action="down" data-target="torque_sequence_{{ item.id }}">↓</button>
+                                <input type="number" name="torque_sequence_{{ item.id }}" value="{{ item.torque_sequence if item.torque_sequence is not none else '' }}" style="width:60px;">
+                                <button type="button" class="button tiny" data-seq-action="up" data-target="torque_sequence_{{ item.id }}">↑</button>
+                            </div>
+                        </td>
+                        <td>
+                            <input type="text" name="assembly_notes_{{ item.id }}" value="{{ item.assembly_notes or '' }}" style="min-width:220px;">
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr>
+                        <td colspan="8" class="text-muted">No items flagged for torque.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.75rem;">
+            <button type="submit" class="button secondary">Save Torque Data</button>
+        </div>
+    </form>
+
+    <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.75rem; justify-content:space-between;">
+        <a class="button secondary" href="{{ url_for('templates_bp.template_wizard', template_id=template.id, step='5') }}">← Back</a>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+        <form method="post" style="margin:0;">
+            {% include "_csrf.html" %}
+            <input type="hidden" name="action" value="wizard_complete_step6">
+            <button type="submit" class="button secondary">Mark Step 6 Complete</button>
+        </form>
+        </div>
+    </div>
+</div>
+
+<script nonce="{{ csp_nonce() }}">
+(() => {
+  const buttons = document.querySelectorAll('[data-seq-action]');
+  for (const btn of buttons) {
+    btn.addEventListener('click', () => {
+      const targetName = btn.getAttribute('data-target');
+      const input = document.querySelector(`input[name="${targetName}"]`);
+      if (!input) return;
+      const current = parseInt(input.value || '0', 10) || 0;
+      const delta = btn.getAttribute('data-seq-action') === 'up' ? 1 : -1;
+      input.value = Math.max(0, current + delta);
+    });
+  }
+})();
+</script>
+{% endif %}
+
+{% endblock %}

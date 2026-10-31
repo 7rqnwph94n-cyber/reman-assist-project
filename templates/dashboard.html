@@ -1,0 +1,367 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Dashboard</h1>
+    <div class="actions">
+        {% if current_user.role in [RoleEnum.ADMIN, RoleEnum.OFFICE] %}
+            <form class="search-form dashboard-search-form" method="get" action="{{ url_for('jobs.dashboard') }}">
+                <input type="hidden" name="limit" value="{{ per_status_limit }}">
+                {% if stage_filter %}
+                    <input type="hidden" name="stage" value="{{ stage_filter }}">
+                {% endif %}
+                {% if sort_by %}
+                    <input type="hidden" name="sort" value="{{ sort_by }}">
+                {% endif %}
+                <button type="submit" class="button secondary search-button">Search</button>
+                <input
+                    type="text"
+                    name="q"
+                    class="search-input"
+                    placeholder="Search jobs by number, customer, engine, or serial…"
+                    value="{{ search_query or '' }}"
+                    {{ testid("dashboard-search")|safe }}
+                >
+                {% if search_query %}
+                    <a class="button secondary" href="{{ url_for('jobs.dashboard') }}">Clear</a>
+                {% endif %}
+            </form>
+            <a href="{{ url_for('jobs.jobs_list') }}" class="button secondary">View All Jobs</a>
+        {% endif %}
+        <div class="text-muted" style="margin-left: 0.5rem;">
+            Showing up to {{ per_status_limit }} per status
+        </div>
+    </div>
+</div>
+
+{% if current_user.role in [RoleEnum.ADMIN, RoleEnum.OFFICE] %}
+<div style="margin:0.25rem 0 0.5rem;">
+    <a href="{{ url_for('jobs.job_flow_report') }}" class="button secondary">Job Flow Report</a>
+</div>
+{% endif %}
+
+{% set show_all = not stage_filter %}
+{% set sort_key = sort_by or 'created' %}
+{% if bottleneck_counts is defined %}
+<div class="dashboard-bottleneck-bar">
+    <button class="bottleneck-card" type="button" data-bottleneck-filter="parts">
+        <div class="bottleneck-card__label">Parts Hold</div>
+        <div class="bottleneck-card__count">{{ bottleneck_counts.parts }}</div>
+    </button>
+    <button class="bottleneck-card" type="button" data-bottleneck-filter="machining">
+        <div class="bottleneck-card__label">Machining/Sublet</div>
+        <div class="bottleneck-card__count">{{ bottleneck_counts.machining }}</div>
+    </button>
+    <button class="bottleneck-card bottleneck-card--clear" type="button" data-bottleneck-filter="all">
+        Clear filter
+    </button>
+</div>
+{% endif %}
+<div class="dashboard-filter-bar" style="margin:0.5rem 0 1rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
+    <a
+        href="{{ url_for('jobs.dashboard', q=search_query or None, limit=per_status_limit, sort=sort_key) }}"
+        class="button {% if show_all %}primary{% else %}secondary{% endif %}"
+    >
+        All stages
+    </a>
+    {% set stage_filters = [
+        ('pre_survey', t('pre_inspection')),
+        ('survey', t('inspection_caps')),
+        ('office', 'Office'),
+        ('build', 'Build'),
+        ('complete', 'Complete')
+    ] %}
+    {% for key, label in stage_filters %}
+        <a
+            href="{{ url_for('jobs.dashboard', stage=key, q=search_query or None, limit=per_status_limit, sort=sort_key) }}"
+            class="button {% if stage_filter == key %}primary{% else %}secondary{% endif %}"
+        >
+            {{ label }}
+        </a>
+    {% endfor %}
+    <span class="text-muted" style="margin-left:auto; align-self:center;">Sort</span>
+    <a
+        href="{{ url_for('jobs.dashboard', stage=stage_filter or None, q=search_query or None, limit=per_status_limit, sort='created') }}"
+        class="button {% if sort_key == 'created' %}primary{% else %}secondary{% endif %}"
+    >
+        Date created
+    </a>
+    <a
+        href="{{ url_for('jobs.dashboard', stage=stage_filter or None, q=search_query or None, limit=per_status_limit, sort='updated') }}"
+        class="button {% if sort_key == 'updated' %}primary{% else %}secondary{% endif %}"
+    >
+        Last modified
+    </a>
+</div>
+
+  <div class="dashboard-columns">
+
+    {# ───── Pre-survey ───── #}
+    {% if show_all or stage_filter == 'pre_survey' %}
+    <section class="dashboard-section">
+      <div class="dashboard-section-header">
+        <h2>{{ t('pre_inspection') }}</h2>
+        <span class="dashboard-count-pill">{{ status_totals["Pre-survey"] }}</span>
+      </div>
+      {% if pre_survey_jobs %}
+        {% for job in pre_survey_jobs %}
+          {{ job_card(job,
+                      'Open job',
+                      url_for('jobs.job_detail', job_id=job.id),
+                      'pre_survey') }}
+        {% endfor %}
+      {% else %}
+        <p class="dashboard-empty">No jobs currently in {{ t('pre_inspection_lower') }}.</p>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    {# ───── In survey ───── #}
+    {% if show_all or stage_filter == 'survey' %}
+    <section class="dashboard-section">
+      <div class="dashboard-section-header">
+        <h2>In {{ t('inspection') }}</h2>
+        <span class="dashboard-count-pill">{{ status_totals["Survey"] }}</span>
+      </div>
+      {% if survey_jobs %}
+        {% for job in survey_jobs %}
+          {{ job_card(job,
+                      'Open ' ~ t('strip_inspection_lower'),
+                      url_for('survey.job_survey', job_id=job.id),
+                      'survey') }}
+        {% endfor %}
+      {% else %}
+        <p class="dashboard-empty">No jobs currently in {{ t('inspection') }}.</p>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    {# ───── Office ───── #}
+    {% if show_all or stage_filter == 'office' %}
+    <section class="dashboard-section">
+      <div class="dashboard-section-header">
+        <h2>Office</h2>
+        <span class="dashboard-count-pill">{{ status_totals["Office"] }}</span>
+      </div>
+      {% if office_jobs %}
+        {% for job in office_jobs %}
+          {{ job_card(job,
+                      'Open parts list',
+                      url_for('parts.job_parts', job_id=job.id),
+                      'office') }}
+        {% endfor %}
+      {% else %}
+        <p class="dashboard-empty">No jobs currently in office stage.</p>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    {# ───── Build ───── #}
+    {% if show_all or stage_filter == 'build' %}
+    <section class="dashboard-section">
+      <div class="dashboard-section-header">
+        <h2>Build</h2>
+        <span class="dashboard-count-pill">{{ status_totals["Build"] }}</span>
+      </div>
+      {% if build_jobs %}
+        {% for job in build_jobs %}
+          {{ job_card(job,
+                      'Open build view',
+                      url_for('jobs.job_build', job_id=job.id),
+                      'build') }}
+        {% endfor %}
+      {% else %}
+        <p class="dashboard-empty">No jobs currently in build.</p>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    {# ───── Complete ───── #}
+    {% if show_all or stage_filter == 'complete' %}
+    <section class="dashboard-section">
+      <div class="dashboard-section-header">
+        <h2>Complete</h2>
+        <span class="dashboard-count-pill">{{ status_totals["Complete"] }}</span>
+      </div>
+      {% if complete_jobs %}
+        {% for job in complete_jobs %}
+          {{ job_card(job,
+                      'View ' ~ t('work_order_lower'),
+                      url_for('jobs.job_pack', job_id=job.id),
+                      'complete') }}
+        {% endfor %}
+      {% else %}
+        <p class="dashboard-empty">No jobs marked complete.</p>
+      {% endif %}
+    </section>
+    {% endif %}
+
+  </div>
+{% endblock %}
+<script nonce="{{ csp_nonce() }}">
+  (function() {
+    const buttons = document.querySelectorAll('[data-bottleneck-filter]');
+    if (!buttons.length) return;
+    const cards = document.querySelectorAll('.job-card');
+    const setFilter = (filter) => {
+      for (const card of cards) {
+        const val = card.getAttribute('data-bottleneck') || '';
+        const show = filter === 'all' || val === filter || val === 'both';
+        card.style.display = show ? '' : 'none';
+      }
+      for (const btn of buttons) {
+        const active = btn.dataset.bottleneckFilter === filter;
+        btn.classList.toggle('bottleneck-card--active', active);
+      }
+    };
+    for (const btn of buttons) {
+      btn.addEventListener('click', () => {
+        const filter = btn.dataset.bottleneckFilter || 'all';
+        setFilter(filter);
+      });
+    }
+  })();
+</script>
+
+{# ──────────────────────────────────────────
+   Job card macro – one layout for all stages
+   ────────────────────────────────────────── #}
+{% macro job_card(job, primary_label, primary_url, stage_key) %}
+  {% set procurement_count = procurement_counts.get(job.id, 0) if procurement_counts is defined else 0 %}
+  {% set pre_photo = job.pre_survey_result.thumbnail_path if job.pre_survey_result else None %}
+  {% set bottleneck = bottleneck_map.get(job.id, '') if bottleneck_map is defined else '' %}
+  <div class="job-card" data-bottleneck="{{ bottleneck }}">
+
+    {# 1) Status pills – centred at top #}
+    <div class="job-progress-row">
+      <div class="job-progress">
+        {% set steps = [
+          ('pre_survey', t('pre_inspection')),
+          ('survey', t('inspection_caps')),
+          ('office', 'Office'),
+          ('build', 'Build'),
+          ('test', 'Test'),
+          ('pdi', 'PDI'),
+          ('complete', 'Complete')
+        ] %}
+        {% for key, label in steps %}
+          <span class="job-progress-step{% if key == stage_key %} is-current{% endif %}">
+            {{ label }}
+          </span>
+        {% endfor %}
+      </div>
+    </div>
+
+    {# 2) Body – info left, thumbnail right #}
+    <div class="job-card-body">
+      <div class="job-card-main">
+
+        <div class="job-card-title-row">
+          <a href="{{ primary_url }}" class="job-title-link">
+            Job {{ job.job_number }}
+          </a>
+          <span class="job-stage-chip">
+            {{ stage_key.replace('_', ' ')|title }}
+          </span>
+          {% if bottleneck %}
+            <span class="status-pill status-ordered">
+              {% if bottleneck == 'both' %}
+                Bottleneck: Both
+              {% elif bottleneck == 'parts' %}
+                Bottleneck: Parts
+              {% else %}
+                Bottleneck: Machining
+              {% endif %}
+            </span>
+          {% endif %}
+          {% if job.status.value == 'complete' %}
+            <span class="status-pill status-complete">Read-only</span>
+          {% endif %}
+          {% if procurement_count > 0 %}
+            <span class="status-pill status-ordered" title="Procurement items">
+              Proc {{ procurement_count }}
+            </span>
+          {% endif %}
+        </div>
+
+        <div class="job-meta-grid-compact">
+          <div class="job-meta-item">
+            <span class="job-meta-label">Customer</span>
+            <span class="job-meta-value">{{ job.customer_name or '—' }}</span>
+          </div>
+
+          <div class="job-meta-item">
+            <span class="job-meta-label">Tech</span>
+            <span class="job-meta-value">
+              {% if job.assigned_to %}
+                {{ job.assigned_to.username }}
+              {% else %}
+                Unassigned
+              {% endif %}
+            </span>
+          </div>
+
+          <div class="job-meta-item">
+            <span class="job-meta-label">Engine</span>
+            <span class="job-meta-value">
+              {{ job.engine_type or 'Unknown engine' }}
+            </span>
+          </div>
+
+          <div class="job-meta-item">
+            <span class="job-meta-label">Date in</span>
+            <span class="job-meta-value">
+              {% if job.created_at %}
+                {{ format_date(job.created_at, with_time=False) }}
+              {% else %}
+                —
+              {% endif %}
+            </span>
+          </div>
+        </div>
+
+        <div class="job-next-row">
+          <span class="job-meta-label">Next</span>
+          <span class="job-meta-value">
+            {% if job.next_action %}
+              {{ job.next_action }}
+            {% elif stage_key == 'pre_survey' %}
+              Start {{ t('strip_inspection_lower') }}
+            {% elif stage_key == 'survey' %}
+              {{ t('inspection_complete_send') }}
+            {% elif stage_key == 'office' %}
+              Complete {{ t('parts_list_lower') }} &amp; order parts
+            {% elif stage_key == 'build' %}
+              Build &amp; test engine
+            {% else %}
+              —
+            {% endif %}
+          </span>
+        </div>
+
+        <div class="job-actions-row">
+          <a href="{{ primary_url }}" class="button primary">
+            {{ primary_label }}
+          </a>
+          <a href="{{ url_for('jobs.job_pack', job_id=job.id) }}" class="button">
+            View {{ t('work_order_lower') }}
+          </a>
+        </div>
+      </div>
+
+      <div class="job-card-thumb-wrap">
+        <div class="job-thumb job-thumb-tall">
+          {% if pre_photo %}
+            <a href="{{ url_for('uploaded_file', filename=pre_photo) }}" target="_blank" rel="noopener">
+              <img src="{{ url_for('uploaded_file', filename=pre_photo) }}"
+                   alt="Arrival photo"
+                   style="width:100%; height:100%; object-fit:cover; border-radius: var(--radius-md); border:1px solid var(--border-subtle); display:block;">
+            </a>
+          {% else %}
+            {{ job.engine_type or 'Engine' }}
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+{% endmacro %}

@@ -1,0 +1,1633 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h1>{{ t('strip_inspection') }} – Job {{ job.job_number }}</h1>
+<div id="autosave-status" class="text-muted" style="margin-bottom:0.5rem;">Auto-save: ready</div>
+<div id="sync-status" class="sync-status sync-status--idle">Cloud Synced</div>
+<div class="text-muted" id="survey-section-indicator" style="margin-bottom:0.5rem;">
+    Section: <span id="survey-section-current">{{ section_filter or "All sections" }}</span>
+    {% if total_pages > 1 %} · Page {{ page }} of {{ total_pages }}{% endif %}
+</div>
+{% if needs_seed %}
+<div class="card" style="margin-bottom: 1rem; padding: 1rem;">
+    <strong>{{ t('inspection_caps') }} not initialized.</strong>
+    <div class="text-muted" style="margin-top: 0.35rem;">
+        Create the {{ t('inspection') }} rows from the engine template to begin.
+    </div>
+    <form method="post" action="{{ url_for('survey.seed_survey', job_id=job.id) }}" style="margin-top: 0.75rem;">
+        {% include "_csrf.html" %}
+        <button type="submit" class="button">{{ t('inspection_init') }}</button>
+    </form>
+</div>
+{% endif %}
+{% if sections and sections|length > 1 %}
+<form method="get" class="inline-form" style="margin-bottom:0.75rem;">
+    <input type="hidden" name="layout" value="{{ layout }}">
+    <input type="hidden" name="page" value="1">
+    <input type="hidden" name="per_page" value="{{ per_page }}">
+    <label for="section_filter">Section</label>
+    <select id="section_filter" name="section" onchange="this.form.submit()">
+        <option value="">All sections</option>
+        {% for sec in sections %}
+            <option value="{{ sec }}" {% if sec == section_filter %}selected{% endif %}>
+                {{ sec }}
+            </option>
+        {% endfor %}
+    </select>
+    <noscript><button type="submit" class="button secondary">Filter</button></noscript>
+</form>
+{% endif %}
+
+{% if total_pages > 1 %}
+<div class="toolbar-row" style="margin-bottom:0.75rem;">
+    <div class="toolbar-block">
+        <span class="text-muted">Page {{ page }} of {{ total_pages }} ({{ total_items }} items)</span>
+    </div>
+    <div class="toolbar-block inline-actions">
+        {% if page > 1 %}
+            <a class="button secondary" href="{{ url_for('survey.job_survey', job_id=job.id, layout=layout, section=section_filter or None, page=page-1, per_page=per_page) }}">Prev</a>
+        {% endif %}
+        {% if page < total_pages %}
+            <a class="button secondary" href="{{ url_for('survey.job_survey', job_id=job.id, layout=layout, section=section_filter or None, page=page+1, per_page=per_page) }}">Next</a>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+{# View switch pill bar (always visible) #}
+<div class="view-switch-bar">
+    <div class="view-switch-left">
+        <span class="job-pill">Job {{ job.job_number }}</span>
+        {% if job.engine_type %}
+            <span class="job-pill">Engine: {{ job.engine_type }}</span>
+        {% endif %}
+        {% if job.customer_name %}
+            <span class="job-pill">Customer: {{ job.customer_name }}</span>
+        {% endif %}
+        <span class="job-pill">Status: {{ job.status.value }}</span>
+    </div>
+    <div class="view-switch-right">
+        <a
+            href="{{ url_for('survey.job_survey', job_id=job.id, layout='classic', section=section_filter or None, page=page, per_page=per_page) }}"
+            class="view-pill {% if layout != 'split' %}pill-active{% endif %}"
+        >
+            Standard
+        </a>
+        <a
+            href="{{ url_for('survey.job_survey', job_id=job.id, layout='split', section=section_filter or None, page=page, per_page=per_page) }}"
+            class="view-pill {% if layout == 'split' %}pill-active{% endif %}"
+        >
+            Diagram split
+        </a>
+    </div>
+</div>
+
+{# Let JS know which layout we’re in (initial flag) #}
+<script nonce="{{ csp_nonce() }}">
+    window.SURVEY_LAYOUT = "{{ layout or 'classic' }}";
+</script>
+
+{% if layout == 'split' %}
+{# ================================================================== #}
+{#                    SPLIT / DIAGRAM LAYOUT                          #}
+{# ================================================================== #}
+
+<form method="post"
+      class="survey-form survey-layout-{{ layout|default('classic') }}"
+      {% if read_only %}data-readonly="1"{% endif %}
+      {{ testid("survey-form")|safe }}>
+    {% include "_csrf.html" %}
+    {% if read_only %}
+        <div class="flash flash-warning" style="margin-bottom: 1rem;">
+            {{ t('inspection_read_only') }}
+        </div>
+    {% endif %}
+    <input type="hidden" name="survey_version" value="{{ job.survey_version or 0 }}">
+    <input type="hidden" name="visible_ids" value="{{ visible_ids|join(',') }}">
+
+    {% set ns = namespace(current_group=None) %}
+
+    <div class="survey-split-root">
+        {# Left: floating diagram bubble #}
+        <div class="split-diagram-column">
+            <div class="split-diagram-bubble">
+                {# Start blank – JS fills this in when a section opens #}
+                <div id="split-diagram-frame" class="split-diagram-frame">
+                    <img
+                        id="split-diagram-img"
+                        src=""
+                        alt="Section diagram"
+                        class="split-diagram-img"
+                    >
+                    <div id="split-diagram-overlay" style="position:absolute; inset:0; pointer-events:none;"></div>
+                </div>
+                <div class="split-diagram-meta">
+                    <div class="split-diagram-caption">
+                        <span id="split-diagram-caption-text">
+                            No section open – stock image / placeholder
+                        </span>
+                    </div>
+                    <div class="split-diagram-actions">
+                        <button type="button" class="small split-bulk-btn" data-decision="reuse" {% if read_only %}disabled{% endif %}>Good</button>
+                        <button type="button" class="small split-bulk-btn" data-decision="replace" {% if read_only %}disabled{% endif %}>Replace</button>
+                        <button type="button" class="small split-bulk-btn" data-decision="scrap" {% if read_only %}disabled{% endif %}>Missing</button>
+                        <button type="button" class="small split-bulk-btn" data-decision="" {% if read_only %}disabled{% endif %}>Clear</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {# Right: collapsible sections / table #}
+        <div class="split-survey-column">
+
+            {% for item in survey_items %}
+                {# Group key: e.g. "TA 0100" #}
+                {% set parts = (item.section or "").split(" ") %}
+                {% set group_key = (parts[0] ~ " " ~ parts[1]) if parts|length >= 2 else (item.section or "General") %}
+
+                {# Map internal decision enum to UI status name #}
+                {% if item.decision == DecisionEnum.REUSE %}
+                    {% set ui_status = "good" %}
+                {% elif item.decision == DecisionEnum.REPLACE %}
+                    {% set ui_status = "replace" %}
+                {% elif item.decision == DecisionEnum.SCRAP %}
+                    {% set ui_status = "missing" %}
+                {% else %}
+                    {% set ui_status = "none" %}
+                {% endif %}
+
+                {# Decorate row (menu / test) even if attrs missing) #}
+                {% set is_big_ticket = item.big_ticket|default(false) %}
+                {% set is_test_item = item.requires_test|default(false) %}
+
+                {# When the group changes, close previous table (except first) #}
+                {% if group_key != ns.current_group %}
+                    {% if not loop.first %}
+                                    </tbody>
+                                </table>
+                            </div> {# split-section-table-wrapper #}
+                        </details>
+                    {% endif %}
+
+                    {% set ns.current_group = group_key %}
+
+                    {# 🔑 Try multiple keys so we match how section_images was built #}
+                    {% set raw_section = item.section or group_key %}
+                    {% set section_name = raw_section %}
+                    {% set section_code = group_key|replace(' ', '')|replace('-', '')|replace('/', '')|upper %}
+                    {% set illos = section_illustrations.get(section_name) or section_illustrations.get(group_key) %}
+                    {% set first_illo = illos[0] if illos and illos|length > 0 else None %}
+                    {% set img_url = (first_illo.image_url if first_illo)
+                                     or section_images.get(raw_section)
+                                     or section_images.get(group_key)
+                                     or section_images.get(section_code) %}
+                    {% set label_json = first_illo.labels|tojson if first_illo else '[]' %}
+                    {% set hotspot_json = first_illo.hotspots|tojson if first_illo else '[]' %}
+
+                    <details class="survey-section split-section"
+                             data-section-name="{{ section_name }}"
+                             data-section-img="{{ img_url or '' }}"
+                             data-section-labels='{{ label_json|safe }}'
+                             data-section-hotspots='{{ hotspot_json|safe }}'
+                             {% if loop.first %}open{% endif %}>
+                        <summary class="section-summary">
+                            <span class="section-title">{{ item.section or group_key }}</span>
+                        </summary>
+
+                        <div class="split-section-table-wrapper">
+                            <table class="strip-survey-table split-survey-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 32px;"></th>
+                                        <th>Pos</th>
+                                        <th>Part no</th>
+                                        <th>Name</th>
+                                        {# Amt column kept for layout but hidden via CSS #}
+                                        <th class="split-amt-header" style="display:none;">Amt</th>
+                                        <th>Status</th>
+                                        <th style="width: 38px; text-align:center;">Sel</th>
+                                        <th>Notes</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                {% endif %}
+
+                <tr
+                    class="part-row
+                           {% if item.always_replace %} locked-row{% endif %}
+                           {% if is_big_ticket %} row-big-ticket{% endif %}
+                           {% if is_test_item %} row-test-item{% endif %}"
+                    data-big-ticket="{{ 1 if is_big_ticket else 0 }}"
+                    data-test-item="{{ 1 if is_test_item else 0 }}"
+                    data-pos="{{ item.pos or '' }}"
+                >
+                    <td class="lock-cell">
+                        {% if item.always_replace %}
+                            <span class="lock-icon" title="Always replace">🔒</span>
+                        {% endif %}
+                    </td>
+
+                    <td class="pos-cell">{{ item.pos }}</td>
+
+                    <td class="partno-cell">
+                        {{ item.part_no }}
+                    </td>
+
+                    <td class="name-cell">
+                        <div class="name-pill-scroll">
+                            <span class="name-pill-text">
+                                {{ item.name }}
+                            </span>
+
+                            {% if item.in_kit %}
+                                <span class="kit-dot" title="KIT"></span>
+                            {% endif %}
+
+                            {% if is_big_ticket %}
+                                <span class="tag-big-ticket" title="Menu / upsell item">
+                                    MENU
+                                </span>
+                            {% endif %}
+
+                            {% if is_test_item %}
+                                <span class="tag-test-item" title="Requires test">
+                                    TEST
+                                </span>
+                            {% endif %}
+                        </div>
+                    </td>
+
+                    {# Hidden amount cell – not shown in split view, but still posts value #}
+                    <td class="amount-cell" style="display:none;">
+                        <span class="qty-value"
+                              data-item-id="{{ item.id }}">
+                            {{ item.qty }}
+                        </span>
+
+                        <input
+                            type="hidden"
+                            name="amount_required_{{ item.id }}"
+                            id="qty_required_{{ item.id }}"
+                            class="qty-required"
+                            min="0"
+                            max="{{ item.qty or 0 }}"
+                            data-max-qty="{{ item.qty or 0 }}"
+                            value="{% if item.qty_required %}{{ item.qty_required }}{% elif item.always_replace %}{{ item.qty }}{% else %}{% endif %}"
+                        >
+                    </td>
+
+                    <td class="status-cell">
+                        <div class="status-wrapper">
+                            {# Hidden select – driven by clickable pill #}
+                            <select
+                                id="decision_{{ item.id }}"
+                                name="decision_{{ item.id }}"
+                                class="status-select"
+                                data-item-id="{{ item.id }}"
+                                data-locked="{{ 1 if item.always_replace else 0 }}"
+                                {% if item.always_replace %}disabled{% endif %}
+                                style="display:none;"
+                                {{ testid("decision-" ~ item.id)|safe }}
+                            >
+                                <option value="" {% if ui_status == "none" %}selected{% endif %}>—</option>
+                                <option value="reuse" {% if item.decision == DecisionEnum.REUSE %}selected{% endif %}>
+                                    Good
+                                </option>
+                                <option value="replace" {% if item.decision == DecisionEnum.REPLACE %}selected{% endif %}>
+                                    Replace
+                                </option>
+                                <option value="scrap" {% if item.decision == DecisionEnum.SCRAP %}selected{% endif %}>
+                                    Missing
+                                </option>
+                            </select>
+
+                            {# Round G/R/M dot – click to cycle status #}
+                            <button
+                                type="button"
+                                class="status-cycle"
+                                data-select-id="decision_{{ item.id }}"
+                                {% if item.always_replace %}disabled{% endif %}
+                            >
+                                <span class="decision-pill decision-{{ ui_status }}">
+                                    {% if ui_status == "good" %}
+                                        G
+                                    {% elif ui_status == "replace" %}
+                                        R
+                                    {% elif ui_status == "missing" %}
+                                        M
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </span>
+                            </button>
+                        </div>
+                    </td>
+                    <td class="bulk-cell" style="text-align:center;">
+                        <input type="checkbox" class="bulk-toggle">
+                    </td>
+
+                    <td class="notes-photo-cell">
+                        <button
+                            type="button"
+                            class="icon-button notes-btn"
+                            data-target="notes_input_{{ item.id }}"
+                            title="Add notes"
+                        >
+                            📝
+                        </button>
+
+                        <input
+                            type="hidden"
+                            name="notes_{{ item.id }}"
+                            id="notes_input_{{ item.id }}"
+                            value="{{ item.notes or '' }}"
+                        >
+                    </td>
+                </tr>
+
+                {% if loop.last %}
+                                    </tbody>
+                                </table>
+                            </div> {# split-section-table-wrapper #}
+                        </details>
+                {% endif %}
+            {% endfor %}
+        </div> {# .split-survey-column #}
+    </div> {# .survey-split-root #}
+
+    <h2>{{ t('inspection_add_line') }}</h2>
+    <div class="add-row-panel">
+        <label>Section
+            <input type="text" name="new_section">
+        </label>
+        <label>Pos
+            <input type="number" name="new_pos" min="0">
+        </label>
+        <label>Part no
+            <input type="text" name="new_part_no">
+        </label>
+        <label>Name
+            <input type="text" name="new_name">
+        </label>
+        <label>Qty
+            <input type="number" name="new_qty" value="1" min="1">
+        </label>
+    </div>
+
+    {# ─────────────────────────────
+       Measurements panel (bottom)
+       ───────────────────────────── #}
+    {% set measured_items = survey_items | selectattr('requires_measurement') | list %}
+    {% if measured_items %}
+        <section class="measurements-panel">
+            <h2>Measurements</h2>
+            <table class="strip-survey-table measurements-table">
+                <thead>
+                    <tr>
+                        <th>Section</th>
+                        <th>Pos</th>
+                        <th>Part no</th>
+                        <th>Name</th>
+                        <th>Spec min</th>
+                        <th>Spec max</th>
+                        <th>Unit ({{ unit_hint('length') }})</th>
+                        <th>Measured</th>
+                        <th>Result</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in measured_items %}
+                        <tr>
+                            <td>{{ item.section }}</td>
+                            <td>{{ item.pos }}</td>
+                            <td>{{ item.part_no }}</td>
+                            <td>{{ item.name }}</td>
+
+                            <td>
+                                <input
+                                    type="text"
+                                    name="spec_min_{{ item.id }}"
+                                    value="{{ item.spec_min or '' }}"
+                                >
+                            </td>
+                            <td>
+                                <input
+                                    type="text"
+                                    name="spec_max_{{ item.id }}"
+                                    value="{{ item.spec_max or '' }}"
+                                >
+                            </td>
+                            <td>
+                                <input
+                                    type="text"
+                                    name="measurement_unit_{{ item.id }}"
+                                    value="{{ item.measurement_unit or '' }}"
+                                    placeholder="{{ unit_hint('length') }}"
+                                    style="width:60px;"
+                                >
+                            </td>
+                            <td>
+                                <input
+                                    type="text"
+                                    name="measurement_value_{{ item.id }}"
+                                    value="{{ item.measurement_value or '' }}"
+                                    style="width:80px;"
+                                >
+                            </td>
+                            <td>
+                                {% if item.measurement_result %}
+                                    {{ item.measurement_result.value.replace('_', ' ') }}
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+    {% endif %}
+
+    {% if not read_only %}
+        <div class="actions">
+            <button type="submit" name="action" value="save" {{ testid("survey-save")|safe }}>Save progress</button>
+            <button type="submit" name="action" value="add_row" {{ testid("survey-add-row")|safe }}>Add row</button>
+            <button type="submit" name="action" value="complete" class="primary" {{ testid("survey-complete")|safe }}>
+                {{ t('inspection_complete_send') }}
+            </button>
+        </div>
+    {% endif %}
+</form>
+
+{% else %}
+{# ================================================================== #}
+{#                    CLASSIC / ORIGINAL LAYOUT                       #}
+{# ================================================================== #}
+
+<form method="post"
+      class="survey-form survey-layout-{{ layout|default('classic') }}"
+      {% if read_only %}data-readonly="1"{% endif %}
+      {{ testid("survey-form")|safe }}>
+    {% include "_csrf.html" %}
+    {% if read_only %}
+        <div class="flash flash-warning" style="margin-bottom: 1rem;">
+            {{ t('inspection_read_only') }}
+        </div>
+    {% endif %}
+    <input type="hidden" name="survey_version" value="{{ job.survey_version or 0 }}">
+    <input type="hidden" name="visible_ids" value="{{ visible_ids|join(',') }}">
+
+    {% set ns = namespace(current_group=None) %}
+
+    {% for item in survey_items %}
+        {# Group key: e.g. "TA 0100" #}
+        {% set parts = (item.section or "").split(" ") %}
+        {% set group_key = (parts[0] ~ " " ~ parts[1]) if parts|length >= 2 else (item.section or "General") %}
+
+        {# Map internal decision enum to UI status name #}
+        {% if item.decision == DecisionEnum.REUSE %}
+            {% set ui_status = "good" %}
+        {% elif item.decision == DecisionEnum.REPLACE %}
+            {% set ui_status = "replace" %}
+        {% elif item.decision == DecisionEnum.SCRAP %}
+            {% set ui_status = "missing" %}
+        {% elif item.decision == DecisionEnum.INSPECT %}
+            {% set ui_status = "test" %}
+        {% else %}
+            {% set ui_status = "none" %}
+        {% endif %}
+
+        {# Menu / test flags (using new requires_test) #}
+        {% set is_big_ticket = item.big_ticket|default(false) %}
+        {% set is_test_item = item.requires_test|default(false) %}
+
+        {# When the group changes, close previous table (except first) #}
+        {% if group_key != ns.current_group %}
+            {% if not loop.first %}
+                        </tbody>
+                    </table>
+                </div>
+            </details>
+            {% endif %}
+
+            {% set ns.current_group = group_key %}
+
+            <details class="survey-section" data-section-name="{{ item.section or group_key }}" data-section-hotspots='{{ hotspot_json|safe }}' {% if loop.first %}open{% endif %}>
+                <summary class="section-summary">
+                    <span class="section-title">{{ item.section or group_key }}</span>
+                </summary>
+                <div class="section-diagram">
+                    {# 🔑 Try full label, group key, then compact code (TA0100) #}
+                    {% set raw_section = item.section or group_key %}
+                    {% set section_name = raw_section %}
+                    {% set section_code = group_key|replace(' ', '')|replace('-', '')|replace('/', '')|upper %}
+                    {% set illos = section_illustrations.get(section_name) or section_illustrations.get(group_key) %}
+                    {% set first_illo = illos[0] if illos and illos|length > 0 else None %}
+                    {% set hotspot_json = first_illo.hotspots|tojson if first_illo else '[]' %}
+                    {% set img_url = (first_illo.image_url if first_illo)
+                                     or section_images.get(raw_section)
+                                     or section_images.get(group_key)
+                                     or section_images.get(section_code) %}
+                    {% if img_url %}
+                        <div class="illustration-frame" style="position:relative; display:inline-block; max-width:100%;">
+                            <img src="{{ img_url }}" alt="{{ section_name }} diagram"
+                                 style="max-width: 100%; border-radius: 12px;">
+                            {% if first_illo and (first_illo.labels or first_illo.hotspots) %}
+                            <div class="illustration-overlay" style="position:absolute; inset:0; pointer-events:auto;">
+                                {% for lbl in first_illo.labels %}
+                                    <div class="pos-label" data-pos="{{ lbl.pos }}" style="position:absolute; left:{{ '%.2f'|format(lbl.x_norm * 100) }}%; top:{{ '%.2f'|format(lbl.y_norm * 100) }}%; transform:translate(-50%,-50%); background:#1f3b57; color:#fff; padding:2px 6px; border-radius:10px; font-size:12px; cursor:pointer;">
+                                        {{ lbl.pos }}
+                                    </div>
+                                {% endfor %}
+                                {% if first_illo.hotspots %}
+                                <svg class="hotspot-overlay" viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute; inset:0; width:100%; height:100%; pointer-events:auto; opacity:0.35;">
+                                    {% for hs in first_illo.hotspots %}
+                                        <polygon data-pos="{{ hs.pos }}" points="{% for pt in hs.shape_json %}{{ pt[0] * 100 }},{{ pt[1] * 100 }} {% endfor %}"
+                                                 fill="#2a4c6d" stroke="#9bd1ff" stroke-width="0.6"></polygon>
+                                    {% endfor %}
+                                </svg>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+                        </div>
+                    {% else %}
+                        Image missing
+                    {% endif %}
+                </div>
+                <div class="section-bulk-actions" style="margin: 0.5rem 0 0.75rem;">
+                    <button type="button" class="small section-bulk-btn" data-decision="reuse" {% if read_only %}disabled{% endif %}>Good</button>
+                    <button type="button" class="small section-bulk-btn" data-decision="replace" {% if read_only %}disabled{% endif %}>Replace</button>
+                    <button type="button" class="small section-bulk-btn" data-decision="scrap" {% if read_only %}disabled{% endif %}>Missing</button>
+                    <button type="button" class="small section-bulk-btn" data-decision="" {% if read_only %}disabled{% endif %}>Clear</button>
+                </div>
+
+                <table class="strip-survey-table">
+                    <thead>
+                            <tr>
+                                <th style="width: 32px;"></th>
+                                <th>Pos</th>
+                                <th>Part no</th>
+                                <th>Qty</th>
+                                <th>Name</th>
+                                <th>Status</th>
+                                <th style="width: 38px; text-align:center;">Sel</th>
+                                <th>Amt</th>
+                                <th>Notes</th>
+                            </tr>
+                    </thead>
+                    <tbody>
+        {% endif %}
+
+        <tr
+            class="part-row
+                   {% if item.always_replace %} locked-row{% endif %}
+                   {% if is_big_ticket %} row-big-ticket{% endif %}
+                   {% if is_test_item %} row-test-item{% endif %}"
+            data-big-ticket="{{ 1 if is_big_ticket else 0 }}"
+            data-test-item="{{ 1 if is_test_item else 0 }}"
+            data-pos="{{ item.pos or '' }}"
+        >
+            <td class="lock-cell">
+                {% if item.always_replace %}
+                    <span class="lock-icon" title="Always replace">🔒</span>
+                {% endif %}
+            </td>
+
+            <td class="pos-cell">{{ item.pos }}</td>
+            <td class="partno-cell">{{ item.part_no }}</td>
+            <td class="qty-cell">
+                <span class="qty-value" data-item-id="{{ item.id }}">{{ item.qty }}</span>
+            </td>
+
+            {# PATCHED: classic view name column now a fixed-width scrollable pill #}
+            <td class="name-cell">
+                <div class="name-pill-scroll"
+                     style="display:inline-block; max-width:210px; overflow-x:auto; white-space:nowrap;">
+                    <span class="name-pill-text">
+                        {{ item.name }}
+                    </span>
+
+                    {% if item.in_kit %}
+                        <span class="decision-pill decision-none"
+                              style="margin-left: 0.5rem; font-size: 0.65rem;">
+                            KIT
+                        </span>
+                    {% endif %}
+
+                    {% if is_big_ticket %}
+                        <span class="tag-big-ticket" title="Menu / upsell item">
+                            MENU
+                        </span>
+                    {% endif %}
+
+                    {% if is_test_item %}
+                        <span class="tag-test-item" title="Requires test">
+                            TEST
+                        </span>
+                    {% endif %}
+                </div>
+            </td>
+
+            <td class="status-cell">
+                <div class="status-wrapper">
+                    <select
+                        id="decision_{{ item.id }}"
+                        name="decision_{{ item.id }}"
+                        class="status-select"
+                        data-item-id="{{ item.id }}"
+                        data-locked="{{ 1 if item.always_replace else 0 }}"
+                        {% if item.always_replace %}disabled{% endif %}
+                        {{ testid("decision-" ~ item.id)|safe }}
+                    >
+                        <option value="" {% if ui_status == "none" %}selected{% endif %}>—</option>
+                        <option value="reuse" {% if item.decision == DecisionEnum.REUSE %}selected{% endif %}>
+                            Good
+                        </option>
+                        <option value="replace" {% if item.decision == DecisionEnum.REPLACE %}selected{% endif %}>
+                            Replace
+                        </option>
+                        <option value="scrap" {% if item.decision == DecisionEnum.SCRAP %}selected{% endif %}>
+                            Missing
+                        </option>
+                        {% if is_test_item %}
+                        <option value="inspect" {% if item.decision == DecisionEnum.INSPECT %}selected{% endif %}>
+                            Test pending
+                        </option>
+                        {% endif %}
+                    </select>
+
+                    <span class="decision-pill decision-{{ ui_status }}">
+                        {% if ui_status == "none" %}
+                            —
+                        {% elif ui_status == "good" %}
+                            Good
+                        {% elif ui_status == "replace" %}
+                            Replace
+                        {% elif ui_status == "missing" %}
+                            Missing
+                        {% elif ui_status == "test" %}
+                            Test pending
+                        {% endif %}
+                    </span>
+                </div>
+            </td>
+            <td class="bulk-cell" style="text-align:center;">
+                <input type="checkbox" class="bulk-toggle">
+            </td>
+
+            <td class="amount-cell">
+                <input
+                    type="number"
+                    name="amount_required_{{ item.id }}"
+                    id="qty_required_{{ item.id }}"
+                    class="qty-required"
+                    min="0"
+                    max="{{ item.qty or 0 }}"
+                    data-max-qty="{{ item.qty or 0 }}"
+                    value="{% if item.qty_required %}{{ item.qty_required }}{% elif item.always_replace %}{{ item.qty }}{% else %}{% endif %}"
+                >
+            </td>
+
+            <td class="notes-photo-cell">
+                <button
+                    type="button"
+                    class="icon-button notes-btn"
+                    data-target="notes_input_{{ item.id }}"
+                    title="Add notes"
+                >
+                    📝
+                </button>
+
+                <input
+                    type="hidden"
+                    name="notes_{{ item.id }}"
+                    id="notes_input_{{ item.id }}"
+                    value="{{ item.notes or '' }}"
+                >
+            </td>
+        </tr>
+
+        {% if loop.last %}
+                    </tbody>
+                </table>
+            </div>
+        </details>
+        {% endif %}
+    {% endfor %}
+
+    <h2>{{ t('inspection_add_line') }}</h2>
+    <div class="add-row-panel">
+        <label>Section
+            <input type="text" name="new_section">
+        </label>
+        <label>Pos
+            <input type="number" name="new_pos" min="0">
+        </label>
+        <label>Part no
+            <input type="text" name="new_part_no">
+        </label>
+        <label>Name
+            <input type="text" name="new_name">
+        </label>
+        <label>Qty
+            <input type="number" name="new_qty" value="1" min="1">
+        </label>
+    </div>
+
+    {# ─────────────────────────────
+       Measurements panel (bottom)
+       ───────────────────────────── #}
+    {% set measured_items = survey_items | selectattr('requires_measurement') | list %}
+    {% if measured_items %}
+        <section class="measurements-panel">
+            <h2>Measurements</h2>
+            <table class="strip-survey-table measurements-table">
+                <thead>
+                    <tr>
+                        <th>Section</th>
+                        <th>Pos</th>
+                        <th>Part no</th>
+                        <th>Name</th>
+                        <th>Spec min</th>
+                        <th>Spec max</th>
+                        <th>Unit ({{ unit_hint('length') }})</th>
+                        <th>Measured</th>
+                        <th>Result</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in measured_items %}
+                        <tr>
+                            <td>{{ item.section }}</td>
+                            <td>{{ item.pos }}</td>
+                            <td>{{ item.part_no }}</td>
+                            <td>{{ item.name }}</td>
+
+                            <td>
+                                <input
+                                    type="text"
+                                    name="spec_min_{{ item.id }}"
+                                    value="{{ item.spec_min or '' }}"
+                                >
+                            </td>
+                            <td>
+                                <input
+                                    type="text"
+                                    name="spec_max_{{ item.id }}"
+                                    value="{{ item.spec_max or '' }}"
+                                >
+                            </td>
+                            <td>
+                                <input
+                                    type="text"
+                                    name="measurement_unit_{{ item.id }}"
+                                    value="{{ item.measurement_unit or '' }}"
+                                    placeholder="{{ unit_hint('length') }}"
+                                    style="width:60px;"
+                                >
+                            </td>
+                            <td>
+                                <input
+                                    type="text"
+                                    name="measurement_value_{{ item.id }}"
+                                    value="{{ item.measurement_value or '' }}"
+                                    style="width:80px;"
+                                >
+                            </td>
+                            <td>
+                                {% if item.measurement_result %}
+                                    {{ item.measurement_result.value.replace('_', ' ') }}
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+    {% endif %}
+
+    {% if not read_only %}
+        <div class="actions">
+            <button type="submit" name="action" value="save" {{ testid("survey-save")|safe }}>Save progress</button>
+            <button type="submit" name="action" value="add_row" {{ testid("survey-add-row")|safe }}>Add row</button>
+            <button type="submit" name="action" value="complete" class="primary" {{ testid("survey-complete")|safe }}>
+                {{ t('inspection_complete_send') }}
+            </button>
+        </div>
+    {% endif %}
+</form>
+
+{% endif %}
+
+<script nonce="{{ csp_nonce() }}">
+// Auto-save survey every 10 minutes (with offline draft buffer)
+(function() {
+  const form = document.querySelector('form.survey-form');
+  const statusEl = document.getElementById('autosave-status');
+  const syncEl = document.getElementById('sync-status');
+  if (!form) return;
+  if (form.dataset.readonly === '1') return;
+  const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+  const jobId = form.dataset.jobId || form.getAttribute('data-job-id') || window.location.pathname.split('/')[2];
+  const draftKey = `reman_draft_job_${jobId}`;
+  const DRAFT_VERSION = 1;
+
+  function ensureCsrf() {
+    if (!token) return;
+    let field = form.querySelector('input[name="csrf_token"]');
+    if (!field) {
+      field = document.createElement('input');
+      field.type = 'hidden';
+      field.name = 'csrf_token';
+      form.appendChild(field);
+    }
+    field.value = token;
+  }
+
+  function stamp(msg) {
+    if (statusEl) statusEl.textContent = msg;
+  }
+
+  function setSyncStatus(state) {
+    if (!syncEl) return;
+    syncEl.classList.remove('sync-status--saving', 'sync-status--synced', 'sync-status--offline');
+    if (state === 'saving') {
+      syncEl.textContent = 'Saving...';
+      syncEl.classList.add('sync-status--saving');
+    } else if (state === 'offline') {
+      syncEl.textContent = 'Offline - Changes Saved Locally';
+      syncEl.classList.add('sync-status--offline');
+    } else {
+      syncEl.textContent = 'Cloud Synced';
+      syncEl.classList.add('sync-status--synced');
+    }
+  }
+
+  function collectDraftData() {
+    const fd = new FormData(form);
+    fd.set('action', 'autosave');
+    if (token && !fd.get('csrf_token')) fd.set('csrf_token', token);
+    const fields = {};
+    for (const [key, value] of fd.entries()) {
+      // ignore binary uploads in draft
+      if (value instanceof File) continue;
+      fields[key] = value;
+    }
+    return {
+      v: DRAFT_VERSION,
+      job_id: jobId,
+      updated_at: new Date().toISOString(),
+      fields,
+    };
+  }
+
+  function _formatDraftTimestamp() {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  function saveDraft(draft) {
+    try {
+      draft.timestamp = _formatDraftTimestamp();
+      localStorage.setItem(draftKey, JSON.stringify(draft));
+    } catch (err) {
+      // localStorage may be full or blocked
+    }
+  }
+
+  function clearDraft() {
+    try {
+      localStorage.removeItem(draftKey);
+    } catch (err) {
+      // ignore
+    }
+  }
+
+  function applyDraftToForm(fields) {
+    if (!fields) return;
+    for (const [key, value] of Object.entries(fields)) {
+      const input = form.querySelector(`[name="${CSS.escape(key)}"]`);
+      if (!input) continue;
+      if (input.type === 'checkbox') {
+        input.checked = value === 'on' || value === true || value === 'true';
+      } else if (input.type === 'radio') {
+        const opt = form.querySelector(`[name="${CSS.escape(key)}"][value="${CSS.escape(String(value))}"]`);
+        if (opt) opt.checked = true;
+      } else {
+        input.value = value ?? '';
+      }
+    }
+  }
+
+  function shouldPromptRestore(draft) {
+    if (!draft || !draft.fields) return false;
+    // Compare a sample of fields to detect mismatches
+    const keys = Object.keys(draft.fields);
+    const sample = keys.slice(0, 15);
+    for (const key of sample) {
+      const input = form.querySelector(`[name="${CSS.escape(key)}"]`);
+      if (!input) continue;
+      const currentVal = input.type === 'checkbox' ? (input.checked ? 'on' : '') : (input.value || '');
+      if ((draft.fields[key] || '') !== currentVal) return true;
+    }
+    return false;
+  }
+
+  function showRestorePrompt(draft) {
+    const existing = document.getElementById('draft-restore');
+    if (existing) return;
+    const banner = document.createElement('div');
+    banner.id = 'draft-restore';
+    banner.className = 'draft-restore';
+    const stamp = draft.timestamp || draft.updated_at || _formatDraftTimestamp();
+    banner.innerHTML = `
+      <div class="draft-restore__text">Local draft from ${stamp} found. Restore it?</div>
+      <div class="draft-restore__actions">
+        <button type="button" class="button secondary" id="draft-dismiss">Discard Local Draft</button>
+        <button type="button" class="button primary" id="draft-restore-btn">Restore Draft</button>
+      </div>
+    `;
+    document.body.appendChild(banner);
+    document.getElementById('draft-dismiss')?.addEventListener('click', () => {
+      clearDraft();
+      banner.remove();
+    });
+    document.getElementById('draft-restore-btn')?.addEventListener('click', () => {
+      applyDraftToForm(draft.fields || {});
+      banner.remove();
+    });
+  }
+
+  let autosaveTimer = null;
+  let saving = false;
+
+  async function autosave() {
+    if (saving) return;
+    const draft = collectDraftData();
+    saveDraft(draft);
+    const fd = new FormData(form);
+    if (token && !fd.get('csrf_token')) {
+      fd.set('csrf_token', token);
+    }
+    fd.set('action', 'autosave');
+    try {
+      setSyncStatus('saving');
+      saving = true;
+      const resp = await fetch(form.getAttribute('action') || window.location.pathname, {
+        method: 'POST',
+        body: fd,
+        credentials: 'same-origin',
+        headers: token ? { 'X-CSRFToken': token } : {},
+      });
+      const respText = await resp.text();
+      if (resp.status === 302 || respText.toLowerCase().includes('login')) {
+        alert('Session expired: your data is NOT being saved. Please log in again.');
+        throw new Error('Session expired');
+      }
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const data = JSON.parse(respText || "{}");
+      const ts = data.saved_at || new Date().toISOString();
+      stamp('Auto-saved at ' + ts);
+      clearDraft();
+      setSyncStatus('synced');
+    } catch (err) {
+      stamp('Auto-save failed: ' + err);
+      setSyncStatus('offline');
+    } finally {
+      saving = false;
+    }
+  }
+
+  function scheduleAutosave() {
+    if (autosaveTimer) clearTimeout(autosaveTimer);
+    autosaveTimer = setTimeout(autosave, 45 * 1000);
+    stamp('Auto-save pending...');
+  }
+
+  function tryRestoreDraft() {
+    let draft = null;
+    try {
+      draft = JSON.parse(localStorage.getItem(draftKey) || 'null');
+    } catch (err) {
+      clearDraft();
+      draft = null;
+    }
+    if (draft && shouldPromptRestore(draft)) {
+      showRestorePrompt(draft);
+      setSyncStatus('offline');
+    }
+  }
+
+  async function syncDraftOnReconnect() {
+    let draft = null;
+    try {
+      draft = JSON.parse(localStorage.getItem(draftKey) || 'null');
+    } catch (err) {
+      clearDraft();
+      draft = null;
+    }
+    if (!draft || !draft.fields) return;
+    const fd = new FormData();
+    for (const [key, value] of Object.entries(draft.fields)) {
+      fd.set(key, value ?? '');
+    }
+    if (token && !fd.get('csrf_token')) fd.set('csrf_token', token);
+    fd.set('action', 'autosave');
+    try {
+      setSyncStatus('saving');
+      const resp = await fetch(form.getAttribute('action') || window.location.pathname, {
+        method: 'POST',
+        body: fd,
+        credentials: 'same-origin',
+        headers: token ? { 'X-CSRFToken': token } : {},
+      });
+      const respText = await resp.text();
+      if (resp.status === 302 || respText.toLowerCase().includes('login')) {
+        throw new Error('Session expired');
+      }
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      clearDraft();
+      setSyncStatus('synced');
+    } catch (err) {
+      setSyncStatus('offline');
+    }
+  }
+
+  form.addEventListener('submit', ensureCsrf);
+  form.addEventListener('input', scheduleAutosave);
+  form.addEventListener('change', scheduleAutosave);
+  ensureCsrf();
+  tryRestoreDraft();
+  window.addEventListener('online', syncDraftOnReconnect);
+  setInterval(autosave, 10 * 60 * 1000);
+})();
+</script>
+
+<script nonce="{{ csp_nonce() }}">
+  (function() {
+    const tables = document.querySelectorAll('.measurements-table');
+    if (!tables.length) return;
+
+    function parseNumeric(raw) {
+      const cleaned = (raw || '').toString().replace(/[^0-9.]/g, '');
+      if (!cleaned) return null;
+      const dotCount = (cleaned.match(/\./g) || []).length;
+      if (dotCount > 1) return null;
+      const val = Number(cleaned);
+      return Number.isFinite(val) ? val : null;
+    }
+
+    function updateRow(row) {
+      const valueInput = row.querySelector('input[name^="measurement_value_"]');
+      const minInput = row.querySelector('input[name^="spec_min_"]');
+      const maxInput = row.querySelector('input[name^="spec_max_"]');
+      if (!valueInput) return;
+
+      const v = parseNumeric(valueInput.value);
+      const lo = minInput ? parseNumeric(minInput.value) : null;
+      const hi = maxInput ? parseNumeric(maxInput.value) : null;
+      const outOfSpec = v !== null && ((lo !== null && v < lo) || (hi !== null && v > hi));
+
+      if (outOfSpec) {
+        valueInput.classList.add('input-out-spec');
+      } else {
+        valueInput.classList.remove('input-out-spec');
+      }
+    }
+
+    for (const table of tables) {
+      const rows = table.querySelectorAll('tbody tr');
+      for (const row of rows) {
+        updateRow(row);
+        const inputs = row.querySelectorAll('input[name^="measurement_value_"], input[name^="spec_min_"], input[name^="spec_max_"]');
+        for (const input of inputs) {
+          input.addEventListener('input', () => updateRow(row));
+          input.addEventListener('change', () => updateRow(row));
+        }
+      }
+    }
+  })();
+</script>
+
+<script nonce="{{ csp_nonce() }}">
+  (function() {
+    const form = document.querySelector('form.survey-form');
+    if (!form || form.dataset.readonly === '1') return;
+
+    function parseNumeric(raw) {
+      const cleaned = (raw || '').toString().replace(/[^0-9.]/g, '');
+      if (!cleaned) return null;
+      const dotCount = (cleaned.match(/\./g) || []).length;
+      if (dotCount > 1) return null;
+      const val = Number(cleaned);
+      return Number.isFinite(val) ? val : null;
+    }
+
+    function isClearance(label) {
+      const text = (label || '').toLowerCase();
+      return text.includes('clearance') || text.includes('tolerance');
+    }
+
+    function hardCeilingForUnit(unitRaw) {
+      const unit = (unitRaw || '').toLowerCase();
+      return unit.includes('in') ? 2.0 : 50.0;
+    }
+
+    form.addEventListener('submit', (event) => {
+      const rows = form.querySelectorAll('.measurements-table tbody tr');
+      let extremeCount = 0;
+      for (const row of rows) {
+        const nameCell = row.querySelector('td:nth-child(4)');
+        const label = nameCell ? nameCell.textContent : '';
+        const valueInput = row.querySelector('input[name^="measurement_value_"]');
+        const minInput = row.querySelector('input[name^="spec_min_"]');
+        const maxInput = row.querySelector('input[name^="spec_max_"]');
+        const unitInput = row.querySelector('input[name^="measurement_unit_"]');
+        if (!valueInput) continue;
+
+        const v = parseNumeric(valueInput.value);
+        if (v === null) continue;
+
+        if (isClearance(label)) {
+          const ceiling = hardCeilingForUnit(unitInput ? unitInput.value : '');
+          if (v > ceiling) {
+            alert('Data Entry Error: clearance/tolerance exceeds hard ceiling. Please correct it.');
+            event.preventDefault();
+            return;
+          }
+        }
+
+        const lo = minInput ? parseNumeric(minInput.value) : null;
+        const hi = maxInput ? parseNumeric(maxInput.value) : null;
+        if (lo !== null && hi !== null) {
+          if ((hi !== 0 && v > hi * 10) || (lo !== 0 && v < lo / 10)) {
+            extremeCount += 1;
+          }
+        }
+      }
+
+      if (extremeCount > 0) {
+        const ok = confirm(
+          `One or more measurements exceed the 10x spec limit. (${extremeCount} item(s))\n` +
+          'Yes, this is correct?'
+        );
+        if (!ok) {
+          event.preventDefault();
+        }
+      }
+    });
+  })();
+</script>
+
+<script nonce="{{ csp_nonce() }}">
+  (function() {
+    const form = document.querySelector('form.survey-form');
+    if (!form || form.dataset.readonly !== '1') return;
+    const fields = form.querySelectorAll('input, textarea, select, button');
+    for (const field of fields) {
+      field.setAttribute('disabled', 'disabled');
+    }
+  })();
+</script>
+
+{# ------------------- Shared JS (both layouts) ------------------- #}
+<script nonce="{{ csp_nonce() }}">
+  // Final layout flag for JS
+  window.SURVEY_LAYOUT = "{{ layout or 'classic' }}";
+
+  // Shared map for both layouts
+  const statusMap = {
+    "":        { suffix: "none",    label: "—"       },
+    "reuse":   { suffix: "good",    label: "Good"    },
+    "replace": { suffix: "replace", label: "Replace" },
+    "scrap":   { suffix: "missing", label: "Missing" },
+  };
+
+  function updateDecisionRow(sel) {
+    if (!sel) return;
+
+    const itemId = sel.getAttribute("data-item-id");
+    const locked = sel.getAttribute("data-locked") === "1";
+    const wrapper = sel.parentElement;
+    const pill = wrapper ? wrapper.querySelector(".decision-pill") : null;
+    const qtySpan = document.querySelector(
+      '.qty-value[data-item-id="' + itemId + '"]'
+    );
+    const qtyInput = document.getElementById("qty_required_" + itemId);
+
+    const key = sel.value || "";
+    const info = statusMap[key] || statusMap[""];
+
+    if (pill) {
+      pill.className = "decision-pill decision-" + info.suffix;
+
+      const layout = window.SURVEY_LAYOUT || "classic";
+      if (layout === "split") {
+        // Round G / R / M dot in split layout
+        if (info.suffix === "good") {
+          pill.textContent = "G";
+        } else if (info.suffix === "replace") {
+          pill.textContent = "R";
+        } else if (info.suffix === "missing") {
+          pill.textContent = "M";
+        } else {
+          pill.textContent = "—";
+        }
+      } else {
+        // Classic layout – full labels
+        pill.textContent = info.label;
+      }
+    }
+
+    // Qty logic (still runs even if the input is hidden in split layout)
+    if (qtySpan && qtyInput) {
+      const current = (qtyInput.value || "").trim();
+      const baseQty = (qtySpan.textContent || "").trim();
+      const needsQty = key === "replace" || key === "scrap" || locked;
+
+      if (needsQty) {
+        if (current === "" || current === "0") {
+          qtyInput.value = baseQty;
+        }
+      } else {
+        qtyInput.value = "0";
+      }
+    }
+  }
+
+  function clampQty(inp) {
+    const max = parseInt(inp.getAttribute("max") || "0", 10);
+    let val = parseInt(inp.value || "0", 10);
+
+    if (isNaN(val) || val < 0) {
+      val = 0;
+    }
+    if (max && val > max) {
+      val = max;
+    }
+    inp.value = (val === 0 && inp.value.trim() === "") ? "" : val;
+  }
+
+  // Cycle helper for split layout (null → good → replace → missing → null)
+  function cycleStatus(sel) {
+    const order = ["", "reuse", "replace", "scrap"];
+    const current = sel.value || "";
+    const idx = order.indexOf(current);
+    const next = order[(idx + 1) % order.length];
+    sel.value = next;
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    // Notes popup (both layouts)
+    document.querySelectorAll(".notes-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const targetId = btn.getAttribute("data-target");
+        const input = document.getElementById(targetId);
+        if (!input) return;
+        const current = input.value || "";
+        const updated = window.prompt("Notes for this part:", current);
+        if (updated !== null) {
+          input.value = updated;
+        }
+      });
+    });
+
+    // Status selects – initialise pills
+    document.querySelectorAll(".status-select").forEach((sel) => {
+      updateDecisionRow(sel); // initial state
+      sel.addEventListener("change", () => {
+        updateDecisionRow(sel);
+      });
+    });
+
+    function applyBulkDecision(container, decision) {
+      if (!container) return;
+      container.querySelectorAll("tr.part-row").forEach((row) => {
+        const toggle = row.querySelector(".bulk-toggle");
+        if (!toggle || !toggle.checked) return;
+        const sel = row.querySelector("select.status-select");
+        if (!sel || sel.disabled) return;
+        sel.value = decision || "";
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+        toggle.checked = false;
+      });
+    }
+
+    // Section bulk decision buttons (classic)
+    document.querySelectorAll(".section-bulk-btn").forEach((btn) => {
+      btn.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const decision = btn.getAttribute("data-decision");
+        const details = btn.closest("details");
+        if (!details) return;
+        applyBulkDecision(details, decision);
+      });
+    });
+
+    // Split view bulk buttons (left image column)
+    document.querySelectorAll(".split-bulk-btn").forEach((btn) => {
+      btn.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        const decision = btn.getAttribute("data-decision");
+        const openSection = document.querySelector(".split-section[open]");
+        if (!openSection) return;
+        applyBulkDecision(openSection, decision);
+      });
+    });
+
+    // Qty inputs (classic + hidden in split)
+    document.querySelectorAll(".qty-required").forEach((inp) => {
+      inp.addEventListener("input", () => {
+        clampQty(inp);
+      });
+      inp.addEventListener("blur", () => {
+        clampQty(inp);
+      });
+    });
+
+    // Split-layout specifics
+    if (window.SURVEY_LAYOUT === "split") {
+      // Single-open section + image sync
+      const detailsList = document.querySelectorAll(".split-section");
+      const imgEl = document.getElementById("split-diagram-img");
+      const captionEl = document.getElementById("split-diagram-caption-text");
+      const sectionEl = document.getElementById("survey-section-current");
+      const overlayEl = document.getElementById("split-diagram-overlay");
+      const frameEl = document.getElementById("split-diagram-frame");
+
+      const syncSplitDiagram = (section) => {
+        if (!section) return;
+        const url = section.getAttribute("data-section-img");
+        const name = section.getAttribute("data-section-name") || "Section";
+        const labelsRaw = section.getAttribute("data-section-labels") || "[]";
+        const hotspotsRaw = section.getAttribute("data-section-hotspots") || "[]";
+        let labels = [];
+        let hotspots = [];
+        try {
+          labels = JSON.parse(labelsRaw);
+        } catch (e) {
+          labels = [];
+        }
+        try {
+          hotspots = JSON.parse(hotspotsRaw);
+        } catch (e) {
+          hotspots = [];
+        }
+
+        if (imgEl) {
+          if (url) {
+            imgEl.src = url;
+            imgEl.style.opacity = "1";
+          } else {
+            imgEl.src = "";
+            imgEl.style.opacity = "0.4";
+          }
+        }
+        if (captionEl) {
+          captionEl.textContent = name;
+        }
+        if (sectionEl) {
+          sectionEl.textContent = name;
+        }
+        if (overlayEl) {
+          overlayEl.innerHTML = "";
+          overlayEl.style.pointerEvents = hotspots.length || labels.length ? "auto" : "none";
+          labels.forEach((lbl) => {
+            const dot = document.createElement("div");
+            dot.className = "pos-label";
+            dot.dataset.pos = lbl.pos;
+            dot.textContent = lbl.pos;
+            dot.style.position = "absolute";
+            dot.style.left = (lbl.x_norm * 100).toFixed(2) + "%";
+            dot.style.top = (lbl.y_norm * 100).toFixed(2) + "%";
+            dot.style.transform = "translate(-50%,-50%)";
+            dot.style.background = "#1f3b57";
+            dot.style.color = "#fff";
+            dot.style.padding = "2px 6px";
+            dot.style.borderRadius = "10px";
+            dot.style.fontSize = "12px";
+            dot.style.cursor = "pointer";
+            dot.style.pointerEvents = "auto";
+            overlayEl.appendChild(dot);
+          });
+
+          if (hotspots.length > 0) {
+            const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            svg.classList.add("hotspot-overlay");
+            svg.setAttribute("viewBox", "0 0 100 100");
+            svg.setAttribute("preserveAspectRatio", "none");
+            svg.style.position = "absolute";
+            svg.style.inset = "0";
+            svg.style.width = "100%";
+            svg.style.height = "100%";
+            svg.style.pointerEvents = "auto";
+            svg.style.opacity = "0.35";
+            hotspots.forEach((hs) => {
+              const points = (hs.shape_json || [])
+                .map((pt) => `${pt[0] * 100},${pt[1] * 100}`)
+                .join(" ");
+              if (!points) return;
+              const poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+              poly.setAttribute("points", points);
+              poly.setAttribute("fill", "#2a4c6d");
+              poly.setAttribute("stroke", "#9bd1ff");
+              poly.setAttribute("stroke-width", "0.6");
+              poly.dataset.pos = hs.pos;
+              poly.addEventListener("click", () => {
+                const pos = String(hs.pos || "");
+                if (!pos) return;
+                const row = document.querySelector(`.part-row[data-pos=\"${pos}\"]`);
+                if (row) {
+                  row.scrollIntoView({ behavior: "smooth", block: "center" });
+                  row.classList.add("row-highlight");
+                  setTimeout(() => row.classList.remove("row-highlight"), 1200);
+                }
+              });
+              svg.appendChild(poly);
+            });
+            overlayEl.appendChild(svg);
+          }
+        }
+      };
+
+      detailsList.forEach((d) => {
+        d.addEventListener("toggle", () => {
+          if (d.open) {
+            // Close others
+            detailsList.forEach((other) => {
+              if (other !== d) other.open = false;
+            });
+
+            syncSplitDiagram(d);
+          }
+        });
+      });
+
+      const initialSection =
+        document.querySelector(".split-section[open]") || detailsList[0];
+      if (initialSection) {
+        if (!initialSection.open) initialSection.open = true;
+        syncSplitDiagram(initialSection);
+      }
+
+      if (frameEl && imgEl && overlayEl) {
+        const setOrigin = (event) => {
+          const rect = frameEl.getBoundingClientRect();
+          const x = (event.clientX - rect.left) / rect.width;
+          const y = (event.clientY - rect.top) / rect.height;
+          const xPct = Math.max(0, Math.min(1, x)) * 100;
+          const yPct = Math.max(0, Math.min(1, y)) * 100;
+          const origin = `${xPct}% ${yPct}%`;
+          imgEl.style.transformOrigin = origin;
+          overlayEl.style.transformOrigin = origin;
+        };
+        frameEl.addEventListener("mouseenter", (event) => {
+          setOrigin(event);
+          frameEl.classList.add("zoomed");
+        });
+        frameEl.addEventListener("mousemove", setOrigin);
+        frameEl.addEventListener("mouseleave", () => {
+          frameEl.classList.remove("zoomed");
+          imgEl.style.transformOrigin = "center center";
+          overlayEl.style.transformOrigin = "center center";
+        });
+      }
+
+      // Clickable G/R/M pill → cycle status
+      document.querySelectorAll(".status-cycle").forEach((btn) => {
+        const selectId = btn.getAttribute("data-select-id");
+        const sel = document.getElementById(selectId);
+        if (!sel) return;
+
+        btn.addEventListener("click", () => {
+          if (sel.disabled) return;
+          cycleStatus(sel);
+        });
+      });
+    }
+
+    const highlightRow = (row) => {
+      if (!row) return;
+      row.scrollIntoView({ behavior: "smooth", block: "center" });
+      row.classList.add("row-highlight");
+    };
+
+    const setRowHighlight = (row, active) => {
+      if (!row) return;
+      row.classList.toggle("row-highlight", active);
+    };
+
+    const findRowForPos = (pos, sourceEl) => {
+      if (!pos) return null;
+      const openSplit = document.querySelector(".split-section[open]");
+      if (openSplit) {
+        return openSplit.querySelector(`.part-row[data-pos="${pos}"]`);
+      }
+      const section = sourceEl ? sourceEl.closest(".survey-section") : null;
+      if (section) {
+        return section.querySelector(`.part-row[data-pos="${pos}"]`);
+      }
+      return document.querySelector(`.part-row[data-pos="${pos}"]`);
+    };
+
+    let pinnedPos = null;
+
+    const setPosHighlight = (pos, active) => {
+      if (!pos) return;
+      document.querySelectorAll(".pos-label").forEach((label) => {
+        if (label.getAttribute("data-pos") === pos) {
+          label.classList.toggle("pos-label-active", active);
+          label.style.outline = active ? "2px solid #9bd1ff" : "";
+          label.style.boxShadow = active ? "0 0 0 2px rgba(155,209,255,0.4)" : "";
+        }
+      });
+      document.querySelectorAll(".hotspot-overlay polygon").forEach((poly) => {
+        if (poly.dataset.pos === pos) {
+          poly.classList.toggle("hotspot-active", active);
+        }
+      });
+    };
+
+    const clearAllHighlights = () => {
+      document.querySelectorAll(".pos-label").forEach((label) => {
+        label.classList.remove("pos-label-active");
+        label.style.outline = "";
+        label.style.boxShadow = "";
+      });
+      document.querySelectorAll(".hotspot-overlay polygon").forEach((poly) => {
+        poly.classList.remove("hotspot-active");
+      });
+    };
+
+    const clearAllRowHighlights = () => {
+      document.querySelectorAll(".part-row").forEach((row) => {
+        row.classList.remove("row-highlight");
+      });
+    };
+
+    // POS highlight in both layouts
+    document.querySelectorAll(".part-row").forEach((row) => {
+      row.addEventListener("click", () => {
+        const pos = row.getAttribute("data-pos");
+        if (!pos) return;
+        if (pinnedPos === pos) {
+          pinnedPos = null;
+          clearAllHighlights();
+          clearAllRowHighlights();
+          return;
+        }
+        pinnedPos = pos;
+        clearAllHighlights();
+        clearAllRowHighlights();
+        setPosHighlight(pos, true);
+        setRowHighlight(row, true);
+      });
+    });
+
+    document.addEventListener("click", (event) => {
+      const label = event.target.closest(".pos-label");
+      if (label) {
+        const pos = label.getAttribute("data-pos");
+        if (pinnedPos === pos) {
+          pinnedPos = null;
+          clearAllHighlights();
+          clearAllRowHighlights();
+          return;
+        }
+        pinnedPos = pos;
+        clearAllHighlights();
+        clearAllRowHighlights();
+        setPosHighlight(pos, true);
+        const row = findRowForPos(pos, label);
+        setRowHighlight(row, true);
+        highlightRow(row);
+        return;
+      }
+      const polygon = event.target.closest("polygon");
+      if (polygon && polygon.closest(".hotspot-overlay")) {
+        const pos = polygon.dataset.pos;
+        if (!pos) return;
+        if (pinnedPos === pos) {
+          pinnedPos = null;
+          clearAllHighlights();
+          clearAllRowHighlights();
+          return;
+        }
+        pinnedPos = pos;
+        clearAllHighlights();
+        clearAllRowHighlights();
+        setPosHighlight(pos, true);
+        const row = findRowForPos(pos, polygon);
+        setRowHighlight(row, true);
+        highlightRow(row);
+      }
+    });
+  });
+</script>
+
+{% endblock %}

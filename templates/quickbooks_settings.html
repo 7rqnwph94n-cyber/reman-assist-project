@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h1>QuickBooks Integration</h1>
+    <p class="text-muted">Connect to QuickBooks Online to sync invoices and expenses.</p>
+</div>
+
+<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap:1.5rem;">
+    {# Connection Status Card #}
+    <div class="card" style="padding:1.5rem;">
+        <h2 style="margin:0 0 1rem 0;">Connection Status</h2>
+
+        {% if connection and connection.is_active %}
+            <div style="display:inline-flex; align-items:center; gap:0.5rem; padding:0.5rem 1rem; background:var(--color-success-bg, #d4edda); border-radius:var(--radius-md); margin-bottom:1rem;">
+                <span style="color:var(--color-success, #28a745);">&#10003;</span>
+                <span style="font-weight:600; color:var(--color-success, #28a745);">Connected</span>
+            </div>
+
+            <dl style="margin:0;">
+                <div style="display:flex; gap:1rem; margin-bottom:0.5rem;">
+                    <dt style="color:var(--color-text-muted); min-width:100px;">Company</dt>
+                    <dd style="margin:0; font-weight:500;">{{ connection.company_name or 'Unknown' }}</dd>
+                </div>
+                <div style="display:flex; gap:1rem; margin-bottom:0.5rem;">
+                    <dt style="color:var(--color-text-muted); min-width:100px;">Environment</dt>
+                    <dd style="margin:0;">{{ connection.environment.value|title if connection.environment else 'Sandbox' }}</dd>
+                </div>
+                <div style="display:flex; gap:1rem; margin-bottom:0.5rem;">
+                    <dt style="color:var(--color-text-muted); min-width:100px;">Connected</dt>
+                    <dd style="margin:0;">{{ format_date(connection.connected_at) if connection.connected_at else '—' }}</dd>
+                </div>
+                <div style="display:flex; gap:1rem; margin-bottom:0.5rem;">
+                    <dt style="color:var(--color-text-muted); min-width:100px;">Last Test</dt>
+                    <dd style="margin:0;">
+                        {% if connection.last_test_at %}
+                            {{ format_date(connection.last_test_at) }}
+                            {% if connection.last_test_status == 'ok' %}
+                                <span style="color:var(--color-success, #28a745); margin-left:0.5rem;">&#10003; OK</span>
+                            {% else %}
+                                <span style="color:var(--color-danger, #dc3545); margin-left:0.5rem;">&#10007; Failed</span>
+                            {% endif %}
+                        {% else %}
+                            Never tested
+                        {% endif %}
+                    </dd>
+                </div>
+            </dl>
+
+            <div style="display:flex; gap:0.75rem; margin-top:1.5rem; flex-wrap:wrap;">
+                <form method="post" action="{{ url_for('quickbooks.quickbooks_test') }}" style="display:inline;">
+                    {% include "_csrf.html" %}
+                    <button type="submit" class="button secondary">Test Connection</button>
+                </form>
+
+                <form method="post" action="{{ url_for('quickbooks.quickbooks_disconnect') }}"
+                      style="display:inline;"
+                      onsubmit="return confirm('Disconnect from QuickBooks? This will not delete any synced invoices in QB.');">
+                    {% include "_csrf.html" %}
+                    <button type="submit" class="button" style="background:var(--color-danger, #dc3545); color:white;">Disconnect</button>
+                </form>
+            </div>
+        {% else %}
+            <div style="display:inline-flex; align-items:center; gap:0.5rem; padding:0.5rem 1rem; background:var(--color-warning-bg, #fff3cd); border-radius:var(--radius-md); margin-bottom:1rem;">
+                <span style="color:var(--color-warning, #856404);">&#9888;</span>
+                <span style="font-weight:600; color:var(--color-warning, #856404);">Not Connected</span>
+            </div>
+
+            <p style="color:var(--color-text-muted); margin-bottom:1.5rem;">
+                Connect to QuickBooks Online to enable invoice and expense synchronization.
+            </p>
+
+            <a href="{{ url_for('quickbooks.quickbooks_connect') }}" class="button primary">
+                Connect to QuickBooks
+            </a>
+        {% endif %}
+    </div>
+
+    {# Settings Card (only show if connected) #}
+    {% if connection and connection.is_active %}
+    <div class="card" style="padding:1.5rem;">
+        <h2 style="margin:0 0 1rem 0;">Sync Settings</h2>
+
+        <form method="post" action="{{ url_for('quickbooks.quickbooks_save_settings') }}">
+            {% include "_csrf.html" %}
+
+            <div style="margin-bottom:1rem;">
+                <label class="field-label" for="income_account">Default Income Account</label>
+                <select name="income_account" id="income_account" class="text-input" style="width:100%;">
+                    <option value="">-- Select --</option>
+                    {% for account in income_accounts %}
+                        <option value="{{ account.Id }}"
+                                {{ 'selected' if connection.default_income_account_id == account.Id }}>
+                            {{ account.Name }}
+                        </option>
+                    {% endfor %}
+                </select>
+                <small style="color:var(--color-text-muted); display:block; margin-top:0.25rem;">
+                    Account to use for invoice line items
+                </small>
+            </div>
+
+            <div style="margin-bottom:1rem;">
+                <label class="field-label" for="expense_account">Default Expense Account</label>
+                <select name="expense_account" id="expense_account" class="text-input" style="width:100%;">
+                    <option value="">-- Select --</option>
+                    {% for account in expense_accounts %}
+                        <option value="{{ account.Id }}"
+                                {{ 'selected' if connection.default_expense_account_id == account.Id }}>
+                            {{ account.Name }}
+                        </option>
+                    {% endfor %}
+                </select>
+                <small style="color:var(--color-text-muted); display:block; margin-top:0.25rem;">
+                    Account to use for parts expense sync
+                </small>
+            </div>
+
+            <div style="margin-bottom:1rem;">
+                <label class="field-label" for="invoice_prefix">Invoice Number Prefix</label>
+                <input type="text" name="invoice_prefix" id="invoice_prefix"
+                       class="text-input" maxlength="10" style="width:100%;"
+                       value="{{ connection.invoice_prefix or '' }}"
+                       placeholder="e.g., RA-">
+                <small style="color:var(--color-text-muted); display:block; margin-top:0.25rem;">
+                    Optional prefix added to job numbers for invoices
+                </small>
+            </div>
+
+            <div style="margin-bottom:1.5rem;">
+                <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer;">
+                    <input type="checkbox" name="auto_create_customers" value="1"
+                           {{ 'checked' if connection.auto_create_customers }}>
+                    <span>Automatically create customers in QuickBooks</span>
+                </label>
+                <small style="color:var(--color-text-muted); display:block; margin-left:1.5rem;">
+                    If unchecked, sync will fail for customers not already in QB
+                </small>
+            </div>
+
+            <button type="submit" class="button primary">Save Settings</button>
+        </form>
+    </div>
+    {% endif %}
+</div>
+
+{# Recent Sync Activity #}
+{% if recent_logs %}
+<div class="card" style="padding:1.5rem; margin-top:1.5rem;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+        <h2 style="margin:0;">Recent Sync Activity</h2>
+        <a href="{{ url_for('quickbooks.quickbooks_logs') }}" class="button secondary" style="font-size:0.875rem;">View All</a>
+    </div>
+
+    <div style="overflow-x:auto;">
+        <table class="table" style="width:100%;">
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Type</th>
+                    <th>Entity</th>
+                    <th>Status</th>
+                    <th>QB Reference</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in recent_logs %}
+                <tr>
+                    <td style="white-space:nowrap;">{{ format_date(log.synced_at, with_time=True) }}</td>
+                    <td>{{ log.sync_type.value|title }}</td>
+                    <td>{{ log.entity_type }} #{{ log.entity_id }}</td>
+                    <td>
+                        {% if log.status == 'success' %}
+                            <span style="color:var(--color-success, #28a745);">&#10003; Success</span>
+                        {% else %}
+                            <span style="color:var(--color-danger, #dc3545);">&#10007; Failed</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if log.qb_doc_number %}
+                            {{ log.qb_doc_number }}
+                        {% elif log.error_message %}
+                            <span style="color:var(--color-danger, #dc3545);" title="{{ log.error_message }}">
+                                {{ log.error_message[:50] }}{% if log.error_message|length > 50 %}...{% endif %}
+                            </span>
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+{# Help Section #}
+<div class="card" style="padding:1.5rem; margin-top:1.5rem; background:var(--color-info-bg, #e7f3ff);">
+    <h3 style="margin:0 0 0.75rem 0;">Setup Instructions</h3>
+    <ol style="margin:0; padding-left:1.5rem; color:var(--color-text-muted);">
+        <li style="margin-bottom:0.5rem;">
+            Create a QuickBooks Online app at <a href="https://developer.intuit.com" target="_blank" rel="noopener">developer.intuit.com</a>
+        </li>
+        <li style="margin-bottom:0.5rem;">
+            Set the redirect URI to: <code style="background:var(--color-bg-subtle); padding:0.125rem 0.375rem; border-radius:3px;">{{ request.url_root }}admin/quickbooks/callback</code>
+        </li>
+        <li style="margin-bottom:0.5rem;">
+            Add your Client ID and Secret to environment variables: <code>QUICKBOOKS_CLIENT_ID</code>, <code>QUICKBOOKS_CLIENT_SECRET</code>
+        </li>
+        <li style="margin-bottom:0.5rem;">
+            Set <code>QUICKBOOKS_REDIRECT_URI</code> to match the redirect URI above
+        </li>
+        <li style="margin-bottom:0.5rem;">
+            Generate an encryption key: <code>python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"</code>
+        </li>
+        <li>
+            Set <code>QB_ENCRYPTION_KEY</code> and <code>ENABLE_QUICKBOOKS=true</code>
+        </li>
+    </ol>
+</div>
+{% endblock %}

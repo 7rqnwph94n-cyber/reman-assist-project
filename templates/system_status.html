@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>System status</h1>
+
+<div class="grid-3">
+    <div class="card">
+        <h2>Database</h2>
+        <p>Status: {{ "OK" if db_ok else "Error" }}</p>
+        {% if not db_ok %}
+            <p class="text-muted">{{ db_message }}</p>
+        {% endif %}
+    </div>
+    <div class="card">
+        <h2>Migrations</h2>
+        <p>Current revision: {{ alembic_version or "Unknown" }}</p>
+    </div>
+    <div class="card">
+        <h2>Health</h2>
+        <p>Endpoint: <code>/health</code></p>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Recent errors (last 50)</h2>
+    {% if recent_errors %}
+        <table>
+            <tr>
+                <th>Time</th>
+                <th>Path</th>
+                <th>User</th>
+                <th>Message</th>
+            </tr>
+            {% for err in recent_errors %}
+            <tr>
+                <td>{{ format_date(err.created_at) }}</td>
+                <td>{{ err.path or "—" }}</td>
+                <td>{{ err.user.username if err.user else "—" }}</td>
+                <td style="max-width: 420px; word-break: break-word;">{{ err.message }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    {% else %}
+        <p class="text-muted">No errors recorded.</p>
+    {% endif %}
+</div>
+{% endblock %}

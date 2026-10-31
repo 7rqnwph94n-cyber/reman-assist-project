@@ -1,0 +1,136 @@
+body {
+    font-size: 16px;
+}
+
+input,
+select,
+textarea,
+button {
+    font-size: 16px;
+}
+
+.top-bar,
+body > header,
+.navbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+}
+
+.brand-logo {
+    height: 36px;
+}
+
+.nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+}
+
+.nav a,
+.nav-toggle,
+body > header nav a {
+    padding: 0.4rem 0.7rem;
+}
+
+.container {
+    margin: 1rem auto 1.5rem;
+    padding: 0 0.75rem;
+}
+
+.page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+
+.page-header .actions {
+    width: 100%;
+}
+
+.page-header .dashboard-search-form {
+    flex-wrap: wrap;
+    width: 100%;
+}
+
+.page-header .dashboard-search-form .search-input {
+    flex: 1 1 100%;
+    min-width: 0;
+}
+
+.card {
+    padding: 1rem;
+}
+
+.dashboard-columns {
+    gap: 1.5rem;
+}
+
+.job-card {
+    padding: 1rem 1.25rem;
+}
+
+.job-card-actions {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.view-switch-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+
+.view-switch-right {
+    width: 100%;
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.parts-toolbar,
+.toolbar-row,
+.toolbar-actions {
+    gap: 0.75rem;
+}
+
+.strip-survey-table,
+.parts-table,
+.stores-table,
+.dashboard-table,
+table {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.strip-survey-table th,
+.strip-survey-table td,
+.parts-table th,
+.parts-table td,
+.stores-table th,
+.stores-table td,
+table th,
+table td {
+    white-space: nowrap;
+}
+
+.text-input,
+input[type="text"],
+input[type="number"],
+input[type="file"],
+input[type="password"],
+input[type="email"],
+select,
+textarea {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+button,
+.button {
+    min-height: 44px;
+}

@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <h1>{{ t('inspection_precheck') }} – Job {{ job.job_number }}</h1>
+    <p class="subtitle">
+        {{ t('inspection_precheck_sub') }}
+    </p>
+</div>
+
+<form method="post" enctype="multipart/form-data" class="card" style="padding: 1rem;" {{ testid("presurvey-form")|safe }}>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <h2>Checklist</h2>
+    {% if presurvey_fields %}
+        <div style="display:flex; flex-wrap:wrap; gap:1rem; margin-bottom: 1rem;">
+            {% for field in presurvey_fields %}
+                <div style="flex:1 1 280px; min-width:260px;">
+                    {% if field.type == 'checkbox' %}
+                        <label class="flag-inline" style="width:100%;">
+                            <input
+                                type="checkbox"
+                                name="field_{{ loop.index }}"
+                                {% if existing_data.get(field.label) %}checked{% endif %}
+                            >
+                            <span>{{ field.label }}</span>
+                        </label>
+                    {% elif field.type == 'select' %}
+                        <label class="text-muted" style="display:block; margin-bottom:0.25rem;">{{ field.label }}</label>
+                        <select name="field_{{ loop.index }}" class="status-select" style="width:100%;">
+                            <option value="">-- Select --</option>
+                            {% for opt in field.options %}
+                                <option value="{{ opt }}" {% if existing_data.get(field.label) == opt %}selected{% endif %}>{{ opt }}</option>
+                            {% endfor %}
+                        </select>
+                    {% else %}
+                        <label class="text-muted" style="display:block; margin-bottom:0.25rem;">{{ field.label }}</label>
+                        <input
+                            type="text"
+                            class="text-input"
+                            name="field_{{ loop.index }}"
+                            value="{{ existing_data.get(field.label, '') }}"
+                            style="width:100%;"
+                        >
+                    {% endif %}
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="text-muted">{{ t('inspection_no_precheck') }}</p>
+    {% endif %}
+
+    <h2>Notes</h2>
+    <textarea
+        name="notes"
+        rows="4"
+        class="text-input"
+        placeholder="Any obvious damage, missing assemblies, leaks, etc."
+        style="width: 100%; margin-bottom: 1rem;"
+    >{{ existing_notes or "" }}</textarea>
+
+    <h2>Arrival photo</h2>
+    {% if existing_photo %}
+        <p class="text-muted">Current photo on file:</p>
+        <img src="{{ existing_photo }}" alt="Arrival photo" style="max-width: 280px; border-radius: var(--radius-md); margin-bottom:0.5rem;">
+    {% endif %}
+    <input type="file" name="photo" accept="image/*" {{ testid("presurvey-photo")|safe }}>
+
+    <div style="margin-top: 1.5rem; display:flex; gap:0.75rem;">
+        <button type="submit" class="button primary" {{ testid("presurvey-submit")|safe }}>
+            {{ t('inspection_precheck_save') }}
+        </button>
+        <a href="{{ url_for('jobs.jobs_list') }}" class="button secondary">Cancel</a>
+    </div>
+</form>
+{% endblock %}

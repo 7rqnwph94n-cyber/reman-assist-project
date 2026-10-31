@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Dev tools (temporary)</h1>
+<p class="text-muted" style="margin-top: 0.5rem;">
+    These tools are meant for local testing. Disable with
+    <strong>ENABLE_DEV_TOOLS=false</strong> before deployment.
+</p>
+
+<div class="grid-2">
+    <div class="card">
+        <h2>Role switcher</h2>
+        <p class="text-muted">
+            Preview the UI as another role without changing the database.
+        </p>
+        <div class="text-muted" style="margin-bottom: 0.75rem;">
+            Real role: <strong>{{ real_role }}</strong><br>
+            Override: <strong>{{ dev_role_override or 'None' }}</strong>
+        </div>
+        <div class="actions">
+            <form method="post" action="{{ url_for('dev_tools.dev_role_set') }}" class="inline-form">
+                {% include "_csrf.html" %}
+                <input type="hidden" name="role" value="Admin">
+                <button type="submit" class="button">View as Admin</button>
+            </form>
+            <form method="post" action="{{ url_for('dev_tools.dev_role_set') }}" class="inline-form">
+                {% include "_csrf.html" %}
+                <input type="hidden" name="role" value="Office">
+                <button type="submit" class="button">View as Office</button>
+            </form>
+            <form method="post" action="{{ url_for('dev_tools.dev_role_set') }}" class="inline-form">
+                {% include "_csrf.html" %}
+                <input type="hidden" name="role" value="Stores">
+                <button type="submit" class="button">View as {{ t('parts_room') }}</button>
+            </form>
+            <form method="post" action="{{ url_for('dev_tools.dev_role_set') }}" class="inline-form">
+                {% include "_csrf.html" %}
+                <input type="hidden" name="role" value="Technician">
+                <button type="submit" class="button">View as Technician</button>
+            </form>
+            <form method="post" action="{{ url_for('dev_tools.dev_role_clear') }}" class="inline-form">
+                {% include "_csrf.html" %}
+                <button type="submit" class="button secondary">Clear override</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Quick links</h2>
+        <p class="text-muted">
+            Handy access to common pages while you test.
+        </p>
+        <div class="actions">
+            <a class="button secondary" href="{{ url_for('jobs.dashboard') }}">Dashboard</a>
+            <a class="button secondary" href="{{ url_for('jobs.jobs_list') }}">All jobs</a>
+            <a class="button secondary" href="{{ url_for('templates_bp.templates_list') }}">Templates</a>
+            <a class="button secondary" href="{{ url_for('stores.stores_hub', view='master') }}">{{ t('parts_room') }}</a>
+        </div>
+    </div>
+</div>
+{% endblock %}

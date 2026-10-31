@@ -1,0 +1,31 @@
+{% macro template_card(template) %}
+<div class="job-card">
+    <div class="job-card-main">
+        <h2 class="job-card-title">
+            {{ template.engine_type or "Engine type not set" }}
+        </h2>
+        <p class="job-card-sub">Template: {{ template.name }}</p>
+
+        <div class="job-card-meta">
+            <span class="job-pill">
+                {{ template.engine_type or "Unknown engine" }}
+            </span>
+        </div>
+
+        <div class="job-card-actions">
+            <a href="{{ url_for('stores.stores_for_template', template_id=template.id) }}" class="button primary">
+                View template {{ t('parts_room_lower') }}
+            </a>
+
+            {% if current_user.role.value == 'Admin' %}
+            <form method="post" action="{{ url_for('stores.stores_seed', template_id=template.id) }}" class="inline-form">
+                {% include "_csrf.html" %}
+                <button type="submit" class="button">
+                    Seed from template
+                </button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endmacro %}

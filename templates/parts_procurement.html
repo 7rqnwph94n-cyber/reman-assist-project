@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% from "_export_macros.html" import export_button %}
+{% block content %}
+<h1>Procurement – Job {{ job.job_number }}</h1>
+
+<div class="card">
+    <p class="text-muted" style="margin-top: 0;">
+        Manage ordering and receiving for parts that are not yet in stock.
+    </p>
+    <p class="text-muted">
+        <a class="button secondary" href="{{ next_url or url_for('parts.job_parts', job_id=job.id) }}">Back to full parts list</a>
+    </p>
+    <div class="actions" style="margin-bottom: 1rem;">
+        {{ export_button(job.id, style="primary", disabled=(total_parts == 0), tooltip="No parts marked for replacement yet.") }}
+    </div>
+    <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="parts_version" value="{{ job.parts_version or 0 }}">
+        <input type="hidden" name="page" value="{{ page }}">
+        <input type="hidden" name="per_page" value="{{ per_page }}">
+        {% if next_url %}
+            <input type="hidden" name="next" value="{{ next_url }}">
+        {% endif %}
+        {% if not parts %}
+            <p class="text-muted">No parts currently require procurement.</p>
+        {% endif %}
+        <div class="card" style="margin-bottom: 1rem;">
+            <h3 style="margin-top: 0;">Bulk actions</h3>
+            <div class="actions" style="gap: 0.75rem; flex-wrap: wrap;">
+                <input type="text" name="bulk_supplier" placeholder="Supplier" class="notes-input">
+                <input type="text" name="bulk_po" placeholder="PO number" class="notes-input">
+                <input type="text" name="bulk_backorder_reason" placeholder="Backorder reason" class="notes-input">
+                <button type="submit" name="action" value="bulk_set_supplier_po" class="button secondary">
+                    Create PO for selected
+                </button>
+                <button type="submit" name="action" value="bulk_mark_ordered" class="button secondary">
+                    Mark selected as Ordered
+                </button>
+                <button type="submit" name="action" value="bulk_mark_backorder" class="button secondary">
+                    Mark selected as Backorder
+                </button>
+                <button type="submit" name="action" value="bulk_mark_received_full" class="button">
+                    Mark selected as Fully Received
+                </button>
+                <button type="submit" name="action" value="save" class="button primary">
+                    Save all edits
+                </button>
+            </div>
+            <p class="text-muted" style="margin-bottom: 0;">
+                Select rows below to apply bulk actions.
+            </p>
+        </div>
+        <div class="table-scroll table-scroll-wide">
+        <table class="strip-survey-table parts-table procurement-table">
+            <thead>
+                <tr>
+                    <th style="width: 36px;">
+                        <input type="checkbox" id="select-all-proc">
+                    </th>
+                    <th>Part no</th>
+                    <th>Name</th>
+                    <th>Qty req</th>
+                    <th>Qty recvd</th>
+                    <th>Status</th>
+                    <th>Supplier</th>
+                    <th>PO number</th>
+                    <th>Backorder reason</th>
+                    <th class="text-end">Cost</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for part in parts %}
+                <tr class="part-row status-row-{{ part.stock_status.value if part.stock_status else 'unknown' }}">
+                    <td>
+                        <input type="checkbox" name="selected_ids" value="{{ part.id }}">
+                    </td>
+                    <td>{{ part.part_no or "" }}</td>
+                    <td>{{ part.name or "" }}</td>
+                    <td class="text-end">
+                        {{ part.qty_required or 0 }}
+                    </td>
+                    <td>
+                        <input
+                            type="number"
+                            min="0"
+                            name="received_{{ part.id }}"
+                            value="{{ part.qty_received or 0 }}"
+                            class="qty-input"
+                            style="width: 80px;"
+                        >
+                    </td>
+                    <td style="min-width: 160px;">
+                        <select
+                            name="stock_status_{{ part.id }}"
+                            class="status-select"
+                            style="min-width: 140px; display: block; margin: 0 auto;"
+                        >
+                            {% for status in StockStatusEnum %}
+                                <option value="{{ status.value }}"
+                                        {% if part.stock_status == status %}selected{% endif %}>
+                                    {{ status.value.replace('_', ' ') }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </td>
+                    <td>
+                        <input
+                            type="text"
+                            name="supplier_{{ part.id }}"
+                            value="{{ part.supplier or '' }}"
+                            class="notes-input"
+                        >
+                    </td>
+                    <td>
+                        <input
+                            type="text"
+                            name="po_number_{{ part.id }}"
+                            value="{{ part.po_number or '' }}"
+                            class="notes-input"
+                        >
+                    </td>
+                    <td>
+                        <input
+                            type="text"
+                            name="backorder_reason_{{ part.id }}"
+                            value="{{ part.backorder_reason or '' }}"
+                            class="notes-input"
+                        >
+                    </td>
+                    <td class="text-end">
+                        {% set cost_val = cost_by_part_id.get(part.id) if cost_by_part_id is defined else None %}
+                        {{ format_currency(cost_val) }}
+                    </td>
+                </tr>
+            {% endfor %}
+                <tr>
+                    <td colspan="9" class="text-end"><strong>Total cost</strong></td>
+                    <td class="text-end"><strong>{{ format_currency(procurement_total_cost) }}</strong></td>
+                </tr>
+            </tbody>
+        </table>
+        </div>
+
+        <div class="actions" style="margin-top: 1rem;">
+            <button type="submit" name="action" value="save" class="button primary">Save procurement updates</button>
+            <a class="button secondary" href="{{ next_url or url_for('parts.job_parts', job_id=job.id) }}">Back to parts list</a>
+        </div>
+
+        {% if total_pages > 1 %}
+        <div class="toolbar-row" style="margin-top: 1rem;">
+            <div class="toolbar-block">
+                <span class="text-muted">Page {{ page }} of {{ total_pages }} ({{ total_parts }} lines)</span>
+            </div>
+            <div class="toolbar-block inline-actions">
+                {% if page > 1 %}
+                    <a class="button secondary" href="{{ url_for('parts.job_parts_procurement', job_id=job.id, page=page-1, per_page=per_page) }}">Prev</a>
+                {% endif %}
+                {% if page < total_pages %}
+                    <a class="button secondary" href="{{ url_for('parts.job_parts_procurement', job_id=job.id, page=page+1, per_page=per_page) }}">Next</a>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </form>
+</div>
+
+<script nonce="{{ csp_nonce() }}">
+  (function() {
+    const master = document.getElementById('select-all-proc');
+    if (!master) return;
+    master.addEventListener('change', () => {
+      const boxes = document.querySelectorAll('input[name="selected_ids"]');
+      for (const box of boxes) {
+        box.checked = master.checked;
+      }
+    });
+  })();
+</script>
+{% endblock %}

@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Job Flow Report</h1>
+
+<form method="get" class="card" style="padding: 1rem; margin-bottom: 1rem;">
+    <div class="grid" style="gap: 1rem;">
+        <div>
+            <label>Status</label>
+            <div style="display: grid; gap: 0.25rem;">
+                {% for status in status_values %}
+                    <label style="display: flex; gap: 0.5rem; align-items: center;">
+                        <input type="checkbox" name="status" value="{{ status }}"
+                               {% if status in selected_statuses %}checked{% endif %}>
+                        {{ status_labels.get(status, status) }}
+                    </label>
+                {% endfor %}
+            </div>
+        </div>
+        <div>
+            <label>Technician</label>
+            <select name="technician" class="text-input">
+                <option value="">All</option>
+                {% for tech in technicians %}
+                    <option value="{{ tech.id }}" {% if filters.technician == tech.id|string %}selected{% endif %}>
+                        {{ tech.username }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label>Engine type</label>
+            <select name="engine_type" class="text-input">
+                <option value="">All</option>
+                {% for et in engine_types %}
+                    <option value="{{ et }}" {% if filters.engine_type == et %}selected{% endif %}>
+                        {{ et }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label>Created from</label>
+            <input type="date" name="created_from" class="text-input" value="{{ filters.created_from }}">
+        </div>
+        <div>
+            <label>Created to</label>
+            <input type="date" name="created_to" class="text-input" value="{{ filters.created_to }}">
+        </div>
+        <div style="display: flex; gap: 0.5rem; align-items: flex-end;">
+            <button type="submit" class="button primary">Apply filters</button>
+            <a class="button" href="{{ csv_url }}">Export CSV</a>
+        </div>
+    </div>
+</form>
+
+<div class="card" style="padding: 1rem; margin-bottom: 1rem;">
+    <strong>Total jobs:</strong> {{ totals.jobs }} |
+    <strong>To order:</strong> {{ totals.to_order }} |
+    <strong>Ordered:</strong> {{ totals.ordered }} |
+    <strong>Backorder:</strong> {{ totals.backorder }}
+</div>
+
+<div class="card" style="padding: 1rem;">
+    <table class="report-table">
+        <thead>
+            <tr>
+                <th>Job</th>
+                <th>Customer</th>
+                <th>Engine</th>
+                <th>Status</th>
+                <th>Technician</th>
+                <th>To order</th>
+                <th>Ordered</th>
+                <th>Backorder</th>
+                <th>{{ t('pre_inspection') }}</th>
+                <th>{{ t('inspection_caps') }}</th>
+                <th>Office</th>
+                <th>Build</th>
+                <th>Hold</th>
+                <th>Created</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+                <tr>
+                    <td>
+                        <a href="{{ url_for('jobs.job_detail', job_id=row.job.id) }}">{{ row.job.job_number }}</a>
+                    </td>
+                    <td>{{ row.job.customer_name or "—" }}</td>
+                    <td>{{ row.job.engine_type or "—" }}</td>
+                    <td>{{ status_labels.get(row.status, row.status) }}</td>
+                    <td>{{ row.technician }}</td>
+                    <td>{{ row.to_order }}</td>
+                    <td>{{ row.ordered }}</td>
+                    <td>{{ row.backorder }}</td>
+                    <td>{{ row.durations.get('pre_survey', '—') }}</td>
+                    <td>{{ row.durations.get('survey', '—') }}</td>
+                    <td>{{ row.durations.get('office', '—') }}</td>
+                    <td>{{ row.durations.get('build', '—') }}</td>
+                    <td>{{ row.durations.get('hold', '—') }}</td>
+                    <td>{{ format_date(row.job.created_at, with_time=False) }}</td>
+                </tr>
+            {% else %}
+                <tr>
+                    <td colspan="14">No jobs match the current filters.</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

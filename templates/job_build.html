@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Build – Job {{ job.job_number }}</h1>
+    <div class="actions" style="gap:0.5rem;">
+        <form method="post" style="display:inline;">
+            {% include "_csrf.html" %}
+            <button type="submit" name="action" value="start_build" class="button secondary" {% if read_only %}disabled{% endif %} {{ testid("build-start")|safe }}>Start build</button>
+        </form>
+        <form method="post" style="display:inline;">
+            {% include "_csrf.html" %}
+            <button type="submit" name="action" value="complete_build" class="button primary" {% if read_only %}disabled{% endif %} {{ testid("build-complete")|safe }}>Mark complete</button>
+        </form>
+        <a class="button" href="{{ url_for('jobs.job_pack', job_id=job.id) }}" {{ testid("build-job-pack")|safe }}>{{ t('work_order') }}</a>
+    </div>
+</div>
+
+{% if read_only %}
+    <div class="flash flash-warning" style="margin-bottom: 1rem;">
+        Job is complete and read-only. Admin can reopen if needed.
+    </div>
+{% endif %}
+
+<div class="card">
+    <h2>Build status</h2>
+    <div class="card-grid two-col">
+        <div>
+            <p><strong>{{ t('work_order_id') }}:</strong> {{ job.job_pack_id or "—" }}</p>
+            <p><strong>Customer:</strong> {{ job.customer_name or "—" }}</p>
+            <p><strong>Engine:</strong> {{ job.engine_type or "—" }}</p>
+            <p><strong>Serial no:</strong> {{ job.serial_number or "—" }}</p>
+            {% if job.template %}
+                <p><strong>Template:</strong> {{ job.template.name }}</p>
+            {% endif %}
+        </div>
+        <div>
+            {% if job.assigned_to %}
+                <p><strong>Assigned to:</strong> {{ job.assigned_to.username }} ({{ job.assigned_to.role.value }})</p>
+            {% else %}
+                <p><strong>Assigned to:</strong> Unassigned</p>
+            {% endif %}
+            <p>
+                <strong>Status:</strong>
+                <span class="status-pill status-{{ job.status.value }}">
+                    {{ job.status.value | replace('_', ' ') | title }}
+                </span>
+            </p>
+            <p>
+                <strong>Release:</strong>
+                {% if job.release_signed_at %}
+                    Signed {{ format_date(job.release_signed_at) }}
+                    by {{ job.release_signed_by.username if job.release_signed_by else "—" }}
+                {% else %}
+                    Not released
+                {% endif %}
+            </p>
+            <p><strong>Created:</strong> {{ format_date(job.created_at) }}</p>
+            <p><strong>Updated:</strong> {{ format_date(job.updated_at) }}</p>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Parts readiness</h2>
+    {% set total_required = parts|length %}
+    {% set total_arrived = readiness.in_stock + readiness.received + readiness.fitted %}
+    {% if total_required == 0 %}
+        <div class="flash flash-info" style="margin: 0.75rem 0;">
+            Inventory Check: No replacement parts required for this job.
+        </div>
+    {% else %}
+    <div class="parts-progress" data-total="{{ total_required }}">
+        <div class="parts-progress__header">
+            <span class="parts-progress__label">Parts arrival progress</span>
+            <span class="parts-progress__badge" id="parts-ready-badge" style="display:none;">Job Ready for Assembly</span>
+        </div>
+        <div class="parts-progress__bar">
+            <div class="parts-progress__fill" id="parts-progress-fill" style="width:0%;"></div>
+        </div>
+        <div class="parts-progress__meta" id="parts-progress-meta">
+            {{ total_arrived }} of {{ total_required }} arrived
+        </div>
+    </div>
+    {% endif %}
+    <div class="grid-3">
+        <div class="stat-pill">In stock: {{ readiness.in_stock }}</div>
+        <div class="stat-pill">To order: {{ readiness.to_order }}</div>
+        <div class="stat-pill">Ordered: {{ readiness.ordered }}</div>
+        <div class="stat-pill">Received: {{ readiness.received }}</div>
+        <div class="stat-pill">Fitted: {{ readiness.fitted }}</div>
+        <div class="stat-pill">Pending: {{ readiness.pending }}</div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>Pick lists</h2>
+    {% if picklists %}
+        {% from "_picklist_macros.html" import picklist_card with context %}
+        <div class="grid-3">
+        {% for pl in picklists %}
+            {{ picklist_card(pl) }}
+        {% endfor %}
+        </div>    {% else %}
+        <p class="text-muted">No pick lists yet.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Build resources</h2>
+    {% if attachments %}
+        <ul>
+            {% for a in attachments %}
+                <li>{{ a.filename }} {% if a.uploaded_at %}<span class="text-muted">({{ format_date(a.uploaded_at, with_time=False) }})</span>{% endif %}</li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p class="text-muted">No build attachments uploaded.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Build notes</h2>
+    <form method="post" style="margin-bottom:1rem;" {{ testid("build-note-form")|safe }}>
+        {% include "_csrf.html" %}
+        <textarea name="note" class="text-input" rows="3" placeholder="Add a build note..." {% if read_only %}disabled{% endif %} {{ testid("build-note-input")|safe }}></textarea>
+        <button type="submit" name="action" value="add_note" class="button primary" style="margin-top:0.5rem;" {% if read_only %}disabled{% endif %} {{ testid("build-note-save")|safe }}>Save note</button>
+    </form>
+    {% if build_notes %}
+        <ul>
+            {% for n in build_notes %}
+                <li><strong>{{ format_date(n.created_at) if n.created_at else '' }}</strong>: {{ n.message }}</li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p class="text-muted">No build notes yet.</p>
+    {% endif %}
+</div>
+
+<div id="parts-toast" class="parts-toast" role="status" aria-live="polite"></div>
+
+<script nonce="{{ csp_nonce() }}">
+  (function() {
+    const pollUrl = "{{ url_for('jobs.job_parts_status_summary', job_id=job.id) }}";
+    const toast = document.getElementById('parts-toast');
+    const fill = document.getElementById('parts-progress-fill');
+    const meta = document.getElementById('parts-progress-meta');
+    const badge = document.getElementById('parts-ready-badge');
+    const total = Number(document.querySelector('.parts-progress')?.dataset.total || 0);
+    const initialArrived = Number({{ total_arrived }});
+    let lastArrived = initialArrived;
+    let timer = null;
+
+    function showToast(message) {
+      if (!toast) return;
+      toast.textContent = message;
+      toast.classList.add('parts-toast--show');
+      setTimeout(() => toast.classList.remove('parts-toast--show'), 3500);
+    }
+
+    function updateProgress(totalArrived, totalRequired, pulse = false) {
+      if (!fill || !meta) return;
+      const denom = totalRequired || 0;
+      const pct = denom > 0 ? Math.min(100, Math.round((totalArrived / denom) * 100)) : 0;
+      fill.style.width = `${pct}%`;
+      meta.textContent = `${totalArrived} of ${totalRequired} arrived`;
+      if (denom > 0 && totalArrived >= denom) {
+        fill.classList.add('parts-progress__fill--ready');
+        if (badge) badge.style.display = 'inline-flex';
+      } else {
+        fill.classList.remove('parts-progress__fill--ready');
+        if (badge) badge.style.display = 'none';
+      }
+      if (pulse) {
+        fill.classList.add('animate-pulse');
+        setTimeout(() => fill.classList.remove('animate-pulse'), 3000);
+      }
+    }
+
+    async function poll() {
+      try {
+        const resp = await fetch(pollUrl, { credentials: 'same-origin' });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const totalRequired = data.total_required ?? total;
+        const totalArrived = data.total_arrived ?? 0;
+        updateProgress(totalArrived, totalRequired, lastArrived !== null && totalArrived > lastArrived);
+        if (lastArrived !== null && totalArrived > lastArrived) {
+          const recent = data.recent_arrival || 'Part';
+          const partNo = data.recent_part_no || '';
+          const suffix = partNo ? ` (PN: ${partNo})` : '';
+          showToast(`New Arrival: ${recent}${suffix}`);
+        }
+        lastArrived = totalArrived;
+      } catch (err) {
+        // silent
+      }
+    }
+
+    function startPolling() {
+      if (timer) return;
+      poll();
+      timer = setInterval(poll, 60 * 1000);
+    }
+
+    function stopPolling() {
+      if (!timer) return;
+      clearInterval(timer);
+      timer = null;
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) stopPolling();
+      else startPolling();
+    });
+
+    if (total > 0) {
+      updateProgress(initialArrived, total, false);
+    }
+    if (!document.hidden) startPolling();
+  })();
+</script>
+
+{% endblock %}

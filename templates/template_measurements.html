@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h1>Measurements – {{ template.name }}</h1>
+    <div class="actions">
+        <a class="button secondary" href="#" onclick="history.back(); return false;">← Back</a>
+        <a class="button" href="{{ url_for('templates_bp.template_edit', template_id=template.id) }}">Edit template items</a>
+    </div>
+</div>
+
+<div class="card">
+    <p class="text-muted">
+        Configure limits for parts flagged “Meas?”. Update label/unit/min/max and save.
+        To add more, mark parts as Meas? in the main template editor, save, then return here.
+    </p>
+    {% if not measured_items %}
+        <p class="text-muted">No items are marked as measurement-required.</p>
+    {% else %}
+    <form method="post">
+        {% include "_csrf.html" %}
+        <table class="strip-survey-table">
+            <thead>
+                <tr>
+                    <th style="width:60px;">ID</th>
+                    <th>Section</th>
+                    <th>Part</th>
+                    <th>Label</th>
+                    <th style="width:80px;">Unit ({{ unit_hint('length') }})</th>
+                    <th style="width:90px;">Min</th>
+                    <th style="width:90px;">Max</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in measured_items %}
+                <tr>
+                    <td>{{ item.id }}</td>
+                    <td>{{ item.section or "—" }}</td>
+                    <td>{{ item.part_no or "—" }} – {{ item.name or "Item" }}</td>
+                    <td>
+                        <input type="text" name="label_{{ item.id }}" value="{{ item.measurement_label or '' }}" class="text-input" style="width:100%;">
+                    </td>
+                    <td>
+                        <input type="text" name="unit_{{ item.id }}" value="{{ item.measurement_unit or '' }}" placeholder="{{ unit_hint('length') }}" class="text-input" style="max-width:80px;">
+                    </td>
+                    <td>
+                        <input type="number" step="any" name="min_{{ item.id }}" value="{{ item.measurement_min if item.measurement_min is not none else '' }}" class="text-input" style="max-width:90px;">
+                    </td>
+                    <td>
+                        <input type="number" step="any" name="max_{{ item.id }}" value="{{ item.measurement_max if item.measurement_max is not none else '' }}" class="text-input" style="max-width:90px;">
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <div class="actions" style="margin-top:1rem; justify-content:flex-end;">
+            <button type="submit" class="primary">Save measurements</button>
+        </div>
+    </form>
+    {% endif %}
+</div>
+{% endblock %}

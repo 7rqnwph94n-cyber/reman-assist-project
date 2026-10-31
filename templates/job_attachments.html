@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Attachments – Job {{ job.job_number }}</h1>
+
+{% if read_only %}
+    <div class="flash flash-warning" style="margin-bottom: 1rem;">
+        Job is complete and read-only. Admin can reopen if needed.
+    </div>
+{% endif %}
+
+<div class="card">
+    <h2>Upload attachment</h2>
+    <form method="post" enctype="multipart/form-data" {{ testid("attachment-form")|safe }}>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="file" name="file" required
+               accept=".pdf,.csv,.txt,.xlsx,.xls,.docx,.png,.jpg,.jpeg,.gif,.webp"
+               {% if read_only %}disabled{% endif %}
+               {{ testid("attachment-file")|safe }}>
+        <button type="submit" class="button" {% if read_only %}disabled{% endif %} {{ testid("attachment-submit")|safe }}>Upload</button>
+        <p class="text-muted" style="margin-top: 0.5rem;">
+            Allowed: PDF, CSV, TXT, XLSX/XLS, DOCX, images.
+        </p>
+    </form>
+</div>
+
+<div class="card">
+    <h2>Files</h2>
+    {% if attachments %}
+{% from "_attachment_macros.html" import attachment_card with context %}
+        <div class="text-muted" style="margin-bottom: 0.5rem;">
+            Showing {{ attachments|length }} of {{ total }} files
+        </div>
+        {% if total_pages > 1 %}
+            <div class="toolbar-row" style="margin-bottom:0.75rem;">
+                <div class="toolbar-block">
+                    <span class="text-muted">Page {{ page }} of {{ total_pages }}</span>
+                </div>
+                <div class="toolbar-block inline-actions">
+                    {% if page > 1 %}
+                        <a class="button secondary" href="{{ url_for('jobs.job_attachments', job_id=job.id, page=page-1, per_page=per_page) }}">Prev</a>
+                    {% endif %}
+                    {% if page < total_pages %}
+                        <a class="button secondary" href="{{ url_for('jobs.job_attachments', job_id=job.id, page=page+1, per_page=per_page) }}">Next</a>
+                    {% endif %}
+                </div>
+            </div>
+        {% endif %}
+        <div class="grid-3">
+        {% for att in attachments %}
+            {{ attachment_card(att) }}
+        {% endfor %}
+        </div>    {% else %}
+        <p class="text-muted">No attachments yet.</p>
+    {% endif %}
+</div>
+{% endblock %}

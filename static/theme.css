@@ -1,0 +1,152 @@
+:root {
+  /* Core palette */
+  --bg: #0D1A2E;
+  --surface-1: #142841;
+  --surface-2: #1A3250;
+  --surface-3: #214063; /* hover/selected row */
+  --border: #2A4A70;
+
+  --text: #E1E8F0;
+  --muted: #8B9AAE;
+
+  --accent: #00BFFF;
+  --accent-soft: rgba(0, 191, 255, 0.35);
+
+  /* Status (tinted usage, not full blocks) */
+  --ok: #2E8B57;
+  --warn: #FFD700;
+  --bad: #DC143C;
+  --info: #4682B4;
+
+  /* Spacing */
+  --s-1: 6px;
+  --s-2: 10px;
+  --s-3: 14px;
+  --s-4: 18px;
+  --s-5: 24px;
+
+  /* Shape + depth */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --shadow-1: 0 6px 18px rgba(0,0,0,0.25);
+  --shadow-2: 0 12px 30px rgba(0,0,0,0.35);
+
+  /* Typography */
+  --font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  line-height: 1.5;
+  margin: 0;
+}
+
+h1, h2, h3, h4 {
+  color: var(--text);
+  font-weight: 700;
+  margin: 0 0 var(--s-3);
+}
+
+p {
+  margin: 0 0 var(--s-3);
+  color: var(--muted);
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* Bridge legacy variables to new tokens for existing layouts */
+:root {
+  --bg-base: var(--bg);
+  --bg-elevated: var(--surface-1);
+  --bg-card: var(--surface-1);
+  --bg-card-soft: var(--surface-2);
+  --bg-section-header: var(--surface-2);
+  --bg-table-header: var(--surface-2);
+
+  --border-subtle: var(--border);
+  --border-strong: var(--border);
+
+  --accent-soft: var(--accent-soft);
+  --accent-faint: rgba(0, 191, 255, 0.14);
+
+  --text-main: var(--text);
+  --text-soft: var(--muted);
+  --text-muted: var(--muted);
+
+  --radius-md: var(--r-md);
+  --radius-lg: 16px;
+  --shadow-soft: var(--shadow-2);
+
+  --gap-1: var(--s-1);
+  --gap-2: var(--s-2);
+  --gap-3: var(--s-3);
+  --gap-4: var(--s-4);
+  --gap-5: var(--s-5);
+  --gap-6: 32px;
+}
+
+/* Light theme override with same structure/rules */
+body.theme-light {
+  --bg: #f6f7fb;
+  --surface-1: #ffffff;
+  --surface-2: #eef2f8;
+  --surface-3: #e2e8f4;
+  --border: #c8d2e3;
+
+  --text: #0f172a;
+  --muted: #4b5563;
+
+  --accent: #2563eb;
+  --accent-soft: rgba(37, 99, 235, 0.22);
+
+  --ok: #15803d;
+  --warn: #d97706;
+  --bad: #b91c1c;
+  --info: #2563eb;
+
+  --shadow-1: 0 6px 18px rgba(15, 23, 42, 0.12);
+  --shadow-2: 0 12px 30px rgba(15, 23, 42, 0.16);
+
+  /* Bridge for legacy vars */
+  --bg-base: var(--bg);
+  --bg-elevated: var(--surface-1);
+  --bg-card: var(--surface-1);
+  --bg-card-soft: var(--surface-2);
+  --bg-section-header: var(--surface-2);
+  --bg-table-header: var(--surface-2);
+  --border-subtle: var(--border);
+  --border-strong: var(--border);
+  --accent-faint: rgba(37, 99, 235, 0.12);
+  --text-main: var(--text);
+  --text-soft: var(--muted);
+  --text-muted: var(--muted);
+  --radius-md: var(--r-md);
+  --radius-lg: 16px;
+  --shadow-soft: var(--shadow-2);
+}
+
+/* Ensure light layout width/padding matches dark portal */
+body.theme-light main,
+body.theme-light .page-content,
+body.theme-light .content-wrapper {
+  max-width: 1320px !important;
+  margin: var(--s-5) auto var(--s-6);
+  padding: 0 var(--s-5);
+  box-sizing: border-box;
+}
+
+body.theme-light .container {
+  max-width: 1320px !important;
+  margin: var(--s-3) auto var(--s-6);
+  padding: 0 var(--s-5);
+  box-sizing: border-box;
+}

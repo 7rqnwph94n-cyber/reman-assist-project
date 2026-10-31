@@ -1,0 +1,52 @@
+{% macro job_meta_card(job, with_pack_details=False, pre_photo_url=None) %}
+<div class="card">
+    <div class="card-grid two-col">
+        <div>
+            {% if with_pack_details %}
+            <p><strong>{{ t('work_order_id') }}:</strong> {{ job.job_pack_id or "—" }}</p>
+            {% endif %}
+            <p><strong>Customer:</strong> {{ job.customer_name or "—" }}</p>
+            <p><strong>Engine:</strong> {{ job.engine_type or "—" }}</p>
+            <p><strong>Serial no:</strong> {{ job.serial_number or "—" }}</p>
+            {% if job.template %}
+                <p><strong>Template:</strong> {{ job.template.name }}{% if job.template_version %} (v{{ job.template_version }}){% endif %}</p>
+            {% endif %}
+        </div>
+        <div>
+            {% if job.assigned_to %}
+                <p><strong>Assigned to:</strong> {{ job.assigned_to.username }} ({{ job.assigned_to.role.value }})</p>
+            {% else %}
+                <p><strong>Assigned to:</strong> Unassigned</p>
+            {% endif %}
+            <p>
+                <strong>Status:</strong>
+                <span class="status-pill status-{{ job.status.value }}">
+                    {{ job.status.value | replace('_', ' ') | title }}
+                </span>
+                {% if job.status.value == 'complete' %}
+                    <span class="status-pill status-complete">Read-only</span>
+                {% endif %}
+            </p>
+            {% if with_pack_details %}
+            <p>
+                <strong>Release:</strong>
+                {% if job.release_signed_at %}
+                    Signed {{ format_date(job.release_signed_at) }}
+                    by {{ job.release_signed_by.username if job.release_signed_by else "—" }}
+                {% else %}
+                    Not released
+                {% endif %}
+            </p>
+            {% endif %}
+            <p><strong>Created:</strong> {{ format_date(job.created_at) }}</p>
+            <p><strong>Updated:</strong> {{ format_date(job.updated_at) }}</p>
+        </div>
+        {% if with_pack_details and pre_photo_url %}
+        <div>
+            <p><strong>Arrival photo</strong></p>
+            <img src="{{ pre_photo_url }}" alt="Arrival photo" style="max-width: 240px; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endmacro %}

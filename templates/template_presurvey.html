@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h1>{{ t('pre_inspection') }} form – {{ template.name }}</h1>
+    <div class="actions">
+        <a class="button secondary" href="#" onclick="history.back(); return false;">← Back</a>
+        <a class="button" href="{{ url_for('templates_bp.template_edit', template_id=template.id) }}">Edit template items</a>
+    </div>
+</div>
+
+<div class="card">
+    <p class="text-muted">Define {{ t('pre_inspection_lower') }} checklist items shown before the {{ t('strip_inspection_lower') }} starts.</p>
+    <form method="post">
+        {% include "_csrf.html" %}
+        <table class="strip-survey-table">
+            <thead>
+                <tr>
+                    <th style="width:60px;">#</th>
+                    <th>Label</th>
+                    <th>Type</th>
+                    <th>Options (for select)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for field in presurvey_fields %}
+                <tr>
+                    <td>{{ loop.index }}</td>
+                    <td>
+                        <input type="text" name="label_{{ loop.index }}" value="{{ field.label }}" class="text-input" style="width:100%;">
+                    </td>
+                    <td>
+                        <select name="type_{{ loop.index }}" class="status-select">
+                            <option value="checkbox" {% if field.type == 'checkbox' %}selected{% endif %}>Checkbox</option>
+                            <option value="text" {% if field.type == 'text' %}selected{% endif %}>Text</option>
+                            <option value="select" {% if field.type == 'select' %}selected{% endif %}>Select</option>
+                        </select>
+                    </td>
+                    <td>
+                        <input type="text" name="options_{{ loop.index }}" value="{{ field.options }}" class="text-input" placeholder="comma-separated for select" style="width:100%;">
+                    </td>
+                </tr>
+                {% endfor %}
+                {# Blank row for adding new #}
+                <tr>
+                    <td>+</td>
+                    <td><input type="text" name="new_label" class="text-input" style="width:100%;" placeholder="Add new {{ t('pre_inspection_lower') }} item"></td>
+                    <td>
+                        <select name="new_type" class="status-select">
+                            <option value="checkbox">Checkbox</option>
+                            <option value="text">Text</option>
+                            <option value="select">Select</option>
+                        </select>
+                    </td>
+                    <td><input type="text" name="new_options" class="text-input" placeholder="comma-separated for select" style="width:100%;"></td>
+                </tr>
+            </tbody>
+        </table>
+        <div class="actions" style="margin-top:1rem; justify-content:flex-end;">
+            <button type="submit" class="primary">Save {{ t('pre_inspection_lower') }}</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

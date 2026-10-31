@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+    <h1>Epicor Integration Wizard</h1>
+    <p class="text-muted">Admin-only. Store non-secrets in-app; keep secrets in environment variables.</p>
+</div>
+
+<form method="post">
+    {% include "_csrf.html" %}
+    <input type="hidden" name="action" value="save">
+
+    <div class="card" style="padding:1rem; margin-bottom:1rem;">
+        <h2 style="margin:0 0 0.5rem 0;">1) Connection</h2>
+        <div style="display:flex; flex-wrap:wrap; gap:1rem;">
+            <div>
+                <label class="field-label" for="base_url">Base URL</label><br>
+                <input type="url" id="base_url" name="base_url" required class="text-input" style="min-width:260px;"
+                       value="{{ setting.base_url if setting else '' }}" placeholder="https://epicor.example.com">
+            </div>
+            <div>
+                <label class="field-label" for="company">Company</label><br>
+                <input type="text" id="company" name="company" class="text-input"
+                       value="{{ setting.company if setting else '' }}">
+            </div>
+            <div>
+                <label class="field-label" for="plant">Plant/Site</label><br>
+                <input type="text" id="plant" name="plant" class="text-input"
+                       value="{{ setting.plant if setting else '' }}">
+            </div>
+            <div>
+                <label class="field-label" for="environment">Environment</label><br>
+                <select id="environment" name="environment" class="text-input">
+                    {% for env in envs %}
+                        <option value="{{ env.value }}" {% if setting and setting.environment == env %}selected{% endif %}>{{ env.value|capitalize }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="field-label" for="template_id">Default Engine Template (optional)</label><br>
+                <select id="template_id" name="template_id" class="text-input" style="min-width:220px;">
+                    <option value="">—</option>
+                    {% for t in templates %}
+                        <option value="{{ t.id }}" {% if setting and setting.template_id == t.id %}selected{% endif %}>{{ t.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <div class="card" style="padding:1rem; margin-bottom:1rem;">
+        <h2 style="margin:0 0 0.5rem 0;">2) Authentication</h2>
+        <p class="text-muted" style="margin:0 0 0.5rem 0;">Use env vars for secrets. API key is simplest; OAuth if IT require.</p>
+        <div style="display:flex; flex-wrap:wrap; gap:1rem; align-items:flex-end;">
+            <div>
+                <label class="field-label" for="auth_method">Auth method</label><br>
+                <select id="auth_method" name="auth_method" class="text-input">
+                    {% for am in auth_methods %}
+                        <option value="{{ am.value }}" {% if setting and setting.auth_method == am %}selected{% endif %}>{{ am.value|upper }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="field-label" for="api_key_env_var">API key env var</label><br>
+                <input type="text" id="api_key_env_var" name="api_key_env_var" class="text-input"
+                       placeholder="EPICOR_API_KEY"
+                       value="{{ setting.api_key_env_var if setting else '' }}">
+            </div>
+            <div>
+                <label class="field-label" for="oauth_client_id">OAuth client ID</label><br>
+                <input type="text" id="oauth_client_id" name="oauth_client_id" class="text-input"
+                       value="{{ setting.oauth_client_id if setting else '' }}">
+            </div>
+            <div>
+                <label class="field-label" for="oauth_tenant_id">OAuth tenant/authority</label><br>
+                <input type="text" id="oauth_tenant_id" name="oauth_tenant_id" class="text-input"
+                       value="{{ setting.oauth_tenant_id if setting else '' }}">
+            </div>
+            <div>
+                <label class="field-label" for="oauth_scope">OAuth scope</label><br>
+                <input type="text" id="oauth_scope" name="oauth_scope" class="text-input"
+                       value="{{ setting.oauth_scope if setting else '' }}">
+            </div>
+        </div>
+    </div>
+
+    <div class="card" style="padding:1rem; margin-bottom:1rem;">
+        <h2 style="margin:0 0 0.5rem 0;">3) BAQ / endpoints</h2>
+        <p class="text-muted" style="margin:0 0 0.5rem 0;">Ask IT for BAQ IDs or REST endpoints to pull supplier/cost, stock, and PO status.</p>
+        <div style="display:flex; flex-wrap:wrap; gap:1rem;">
+            <div>
+                <label class="field-label" for="baq_part_cost">BAQ: supplier/cost</label><br>
+                <input type="text" id="baq_part_cost" name="baq_part_cost" class="text-input"
+                       value="{{ setting.baq_part_cost if setting else '' }}">
+            </div>
+            <div>
+                <label class="field-label" for="baq_stock">BAQ: stock on hand/order</label><br>
+                <input type="text" id="baq_stock" name="baq_stock" class="text-input"
+                       value="{{ setting.baq_stock if setting else '' }}">
+            </div>
+            <div>
+                <label class="field-label" for="baq_po_status">BAQ: PO/receipt status</label><br>
+                <input type="text" id="baq_po_status" name="baq_po_status" class="text-input"
+                       value="{{ setting.baq_po_status if setting else '' }}">
+            </div>
+        </div>
+    </div>
+
+    <div class="card" style="padding:1rem; margin-bottom:1rem;">
+        <h2 style="margin:0 0 0.5rem 0;">4) Write mode (later phases)</h2>
+        <p class="text-muted" style="margin:0 0 0.5rem 0;">Leave as NONE for read-only. DMT for controlled exports; REST for direct writes.</p>
+        <div>
+            <select id="write_mode" name="write_mode" class="text-input" style="min-width:200px;">
+                {% for wm in write_modes %}
+                    <option value="{{ wm.value }}" {% if setting and setting.write_mode == wm %}selected{% endif %}>{{ wm.value.upper() }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+
+    <div class="card" style="padding:1rem; margin-bottom:1rem; display:flex; flex-wrap:wrap; gap:0.75rem; align-items:center;">
+        <button type="submit" class="button">Save settings</button>
+        {% if setting %}
+            <span class="text-muted">Last tested: {{ setting.last_tested_at or '—' }} ({{ setting.last_test_status or 'never' }})</span>
+        {% endif %}
+    </div>
+</form>
+
+<div class="card" style="padding:1rem; display:flex; gap:0.75rem; flex-wrap:wrap;">
+    <form method="post">
+        {% include "_csrf.html" %}
+        <input type="hidden" name="action" value="test_connection">
+        <button type="submit" class="button secondary">Test Connection</button>
+    </form>
+    <form method="post">
+        {% include "_csrf.html" %}
+        <input type="hidden" name="action" value="sample_query">
+        <button type="submit" class="button secondary">Run Sample Query</button>
+    </form>
+    <form method="post">
+        {% include "_csrf.html" %}
+        <input type="hidden" name="action" value="sync_now">
+        <button type="submit" class="button secondary">Sync Now</button>
+    </form>
+</div>
+
+{% if sample_rows %}
+    <div class="card" style="padding:1rem; margin-top:1rem;">
+        <h3 style="margin-top:0;">Sample data (demo only)</h3>
+        <table class="table">
+            <thead>
+                <tr>
+                    {% for col in sample_rows[0].keys() %}
+                        <th>{{ col }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in sample_rows %}
+                    <tr>
+                        {% for val in row.values() %}
+                            <td>{{ val }}</td>
+                        {% endfor %}
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endif %}
+{% endblock %}

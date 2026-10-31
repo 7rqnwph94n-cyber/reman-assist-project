@@ -1,0 +1,1046 @@
+{% extends "base.html" %}
+{% from "_export_macros.html" import export_button %}
+{% block content %}
+{% macro render_stock(part) %}
+    {% set required = part.qty_required or 0 %}
+    {% set available = part.derived_stock if part.derived_stock is defined else None %}
+    {% if available is none and part.store_item %}
+        {% set available = part.store_item.qty_in_stock or 0 %}
+    {% endif %}
+    {% set enough = required > 0 and available is not none and available >= required %}
+    {% set partial = available is not none and available > 0 and (required == 0 or available < required) %}
+    {% set empty = available is none or available == 0 %}
+    {% if available is not none %}
+        <span class="stock-pill
+                     {% if enough %}stock-ok{% elif partial %}stock-partial{% else %}stock-empty{% endif %}">
+            {{ available }} / {{ required }}
+        </span>
+        {% set bin_hint = part.derived_bin if part.derived_bin is defined else None %}
+        {% if bin_hint is none and part.store_item and part.store_item.bin_location %}
+            {% set bin_hint = part.store_item.bin_location %}
+        {% endif %}
+        {% if bin_hint %}
+            <span class="bin-pill" title="Bin location">{{ bin_hint }}</span>
+        {% endif %}
+    {% else %}
+        <span class="text-muted">—</span>
+    {% endif %}
+{% endmacro %}
+
+{% set status_labels = {
+    "pending": "Pending (office triage)",
+    "to_order": "To order (no PO)",
+    "ordered": "On order (PO raised)",
+    "received": "Received in stores",
+    "backorder": "Backorder",
+    "in_stock": "In stock (enough)",
+    "fitted": "Issued / fitted",
+    "not_required": "Not required"
+} %}
+<div class="parts-page">
+<h1>Parts – Job {{ job.job_number }}</h1>
+{% if read_only %}
+    <div class="flash flash-warning" style="margin-bottom: 1rem;">
+        Job is complete and read-only. Admin can reopen if needed.
+    </div>
+{% endif %}
+
+{% if procurement_count and procurement_count > 0 and current_user and current_user.role.value in ['Admin', 'Office'] %}
+    <div class="card" style="margin: 0.75rem 0 1rem;">
+        <strong>Procurement queue:</strong> {{ procurement_count }} line(s) need ordering or follow-up.
+        <a class="button secondary" style="margin-left: 0.75rem;" href="{{ url_for('parts.job_parts_procurement', job_id=job.id, next=return_url) }}">
+            Open procurement queue
+        </a>
+    </div>
+{% endif %}
+
+<div class="card parts-toolbar">
+    <div class="toolbar-row">
+        <div class="toolbar-block">
+            <div class="toolbar-title">Readiness</div>
+            <div class="pill-row">
+                <span class="pill pill-good">In stock: {{ status_counts.get('in_stock', 0) }}</span>
+                <span class="pill pill-amber">To order: {{ status_counts.get('to_order', 0) }}</span>
+                <span class="pill pill-amber">Pending: {{ status_counts.get('pending', 0) }}</span>
+                <span class="pill pill-amber">Ordered: {{ status_counts.get('ordered', 0) }}</span>
+                <span class="pill pill-amber">Backorder: {{ status_counts.get('backorder', 0) }}</span>
+                <span class="pill pill-good">Received: {{ status_counts.get('received', 0) }}</span>
+                <span class="pill pill-good">Fitted: {{ status_counts.get('fitted', 0) }}</span>
+                <span class="pill pill-muted">Not req.: {{ status_counts.get('not_required', 0) }}</span>
+                <span class="pill pill-amber">Unapproved: {{ unapproved_count }}</span>
+            </div>
+            {% if procurement_count and procurement_count > 0 and current_user and current_user.role.value in ['Admin', 'Office'] %}
+                <div style="margin-top: 0.75rem;">
+                    <a class="button" href="{{ url_for('parts.job_parts_procurement', job_id=job.id, next=return_url) }}">
+                        Procurement queue ({{ procurement_count }})
+                    </a>
+                </div>
+            {% endif %}
+        </div>
+        <div class="toolbar-block toolbar-search">
+            <form method="get"
+                  action="{{ url_for('parts.job_parts', job_id=job.id) }}"
+                  class="search-form">
+                <input
+                    type="text"
+                    name="q"
+                    class="search-input"
+                    placeholder="Search part no / name / section"
+                    value="{{ search_query or '' }}"
+                >
+                {% if filter_status %}
+                    <input type="hidden" name="status" value="{{ filter_status }}">
+                {% endif %}
+                {% if unapproved_only %}
+                    <input type="hidden" name="unapproved" value="1">
+                {% endif %}
+                <button type="submit" class="primary">Search</button>
+                {% if search_query %}
+                    <a href="{{ url_for('parts.job_parts', job_id=job.id, status=filter_status if filter_status else None, unapproved='1' if unapproved_only else None) }}" class="search-clear">
+                        Clear
+                    </a>
+                {% endif %}
+            </form>
+            <div class="search-meta text-muted">
+                Showing {{ parts|length }} of {{ filtered_count }} parts{% if total_parts != filtered_count %} ({{ total_parts }} total){% endif %}
+            </div>
+            {% if total_pages > 1 %}
+                <div class="toolbar-row" style="margin-top:0.35rem;">
+                    <div class="toolbar-block">
+                        <span class="text-muted">Page {{ page }} of {{ total_pages }}</span>
+                    </div>
+                    <div class="toolbar-block inline-actions">
+                        {% if page > 1 %}
+                            <a class="button secondary parts-page-link" href="{{ url_for('parts.job_parts', job_id=job.id, q=search_query or None, status=filter_status or None, unapproved='1' if unapproved_only else None, page=page-1, per_page=per_page) }}">Prev</a>
+                        {% endif %}
+                        {% if page < total_pages %}
+                            <a class="button secondary parts-page-link" href="{{ url_for('parts.job_parts', job_id=job.id, q=search_query or None, status=filter_status or None, unapproved='1' if unapproved_only else None, page=page+1, per_page=per_page) }}">Next</a>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endif %}
+            <div class="toolbar-actions">
+                {{ export_button(job.id, style="secondary", disabled=(total_parts == 0), tooltip="No parts marked for replacement yet.") }}
+                {% if current_user and current_user.role.value in ['Admin', 'Office'] %}
+                    <a class="button secondary" href="{{ url_for('parts.job_parts_procurement', job_id=job.id, next=return_url) }}">Procurement queue</a>
+                    <form method="post" action="{{ url_for('costing.bind_costing', job_id=job.id) }}" style="display:inline;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="button secondary">{{ t('bind_costing') }}</button>
+                    </form>
+                    <a class="button secondary" href="{{ url_for('costing.job_costing', job_id=job.id) }}">Costing sheet</a>
+                    <a class="button" href="{{ url_for('costing.export_costing', job_id=job.id) }}">Export costing XLSX</a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="toolbar-row">
+        <div class="toolbar-block">
+            <div class="toolbar-title">Status filters</div>
+            <div class="filter-row">
+                {% set status_pills = [
+                    ('', 'All'),
+                    ('to_order', 'To order'),
+                    ('procurement', 'Procurement'),
+                    ('ordered', 'On order'),
+                    ('received', 'Received'),
+                    ('backorder', 'Backorder'),
+                    ('in_stock', 'In stock'),
+                    ('fitted', 'Issued/Fitted'),
+                    ('not_required', 'Not required')
+                ] %}
+                {% for key, label in status_pills %}
+                    {% if key == 'procurement' %}
+                        <a
+                            class="filter-pill"
+                            href="{{ url_for('parts.job_parts_procurement', job_id=job.id, next=return_url) }}"
+                        >
+                            {{ label }}{% if procurement_count %} ({{ procurement_count }}){% endif %}
+                        </a>
+                    {% else %}
+                        {% set count = status_counts.get(key or '', 0) if key else filtered_count %}
+                        <a
+                            class="filter-pill {% if (filter_status or '') == key %}is-active{% endif %}"
+                            href="{{ url_for('parts.job_parts',
+                                             job_id=job.id,
+                                             status=key or None,
+                                             q=search_query or None,
+                                             unapproved='1' if unapproved_only else None) }}"
+                        >
+                            {{ label }}{% if key %} ({{ count }}){% endif %}
+                        </a>
+                    {% endif %}
+                {% endfor %}
+                <a
+                    class="filter-pill {% if unapproved_only %}is-active{% endif %}"
+                    href="{{ url_for('parts.job_parts',
+                                     job_id=job.id,
+                                     status=filter_status if filter_status else None,
+                                     q=search_query or None,
+                                     unapproved='0' if unapproved_only else '1') }}"
+                >
+                    Unapproved only ({{ unapproved_count }})
+                </a>
+            </div>
+        </div>
+        <div class="toolbar-block status-legend">
+            <div class="toolbar-title">Legend</div>
+            <div class="pill-row">
+                <span class="pill pill-amber">To order = no PO yet</span>
+                <span class="pill pill-amber">On order = PO raised</span>
+                <span class="pill pill-amber">Backorder = supplier delay</span>
+                <span class="pill pill-good">Received = in stores</span>
+                <span class="pill pill-good">In stock = enough on hand</span>
+                <span class="pill pill-good">Issued/Fitted = with build</span>
+                <span class="pill pill-muted">Not required = removed line</span>
+            </div>
+        </div>
+    </div>
+    <div class="toolbar-row toolbar-actions-row">
+        <div class="toolbar-block">
+            <div class="pill-row">
+                <button type="button" class="secondary small" id="expand-all">Expand all</button>
+                <button type="button" class="secondary small" id="collapse-all">Collapse all</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<form method="post" id="parts-form" {% if read_only %}data-readonly="1"{% endif %} {{ testid("parts-form")|safe }}>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="parts_version" value="{{ job.parts_version or 0 }}">
+    <input type="hidden" name="next" id="parts-next" value="">
+    <input type="hidden" name="q" value="{{ search_query or '' }}">
+    <input type="hidden" name="status" value="{{ filter_status or '' }}">
+    <input type="hidden" name="unapproved" value="{{ '1' if unapproved_only else '0' }}">
+    <input type="hidden" name="page" value="{{ page }}">
+    <input type="hidden" name="per_page" value="{{ per_page }}">
+    {# Nonconformance workflow removed #}
+
+    {% set has_any_parts = (standard_parts and standard_parts|length)
+                           or (always_parts and always_parts|length)
+                           or (test_parts and test_parts|length)
+                           or (big_ticket_parts and big_ticket_parts|length)
+                           or (kit_parts_by_name and kit_parts_by_name|length) %}
+
+    {% if not has_any_parts %}
+        <p>No parts have been generated yet for this job.</p>
+    {% else %}
+        {% if total_pages > 1 %}
+            <div class="toolbar-row" style="margin-bottom:0.75rem;">
+                <div class="toolbar-block">
+                    <span class="text-muted">Page {{ page }} of {{ total_pages }} ({{ filtered_count }} items)</span>
+                </div>
+                <div class="toolbar-block inline-actions">
+                    {% if page > 1 %}
+                        <a class="button secondary parts-page-link" href="{{ url_for('parts.job_parts', job_id=job.id, q=search_query or None, status=filter_status or None, unapproved='1' if unapproved_only else None, page=page-1, per_page=per_page) }}">Prev</a>
+                    {% endif %}
+                    {% if page < total_pages %}
+                        <a class="button secondary parts-page-link" href="{{ url_for('parts.job_parts', job_id=job.id, q=search_query or None, status=filter_status or None, unapproved='1' if unapproved_only else None, page=page+1, per_page=per_page) }}">Next</a>
+                    {% endif %}
+                </div>
+            </div>
+        {% endif %}
+
+        {# =========================
+           100% ITEMS – ALWAYS REPLACE
+           ========================= #}
+
+        {% if always_parts %}
+            <details class="survey-section" open>
+                <summary class="section-summary">
+                    100% items – always replace
+                </summary>
+                <div class="section-body">
+                    <div class="table-scroll table-scroll-wide">
+                    <table class="strip-survey-table parts-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 32px;"></th>
+                                <th>Part no</th>
+                                <th>Name</th>
+                                <th>Qty</th>
+                                <th>Stock</th>
+                                <th>Status</th>
+                                <th style="width: 110px; text-align: center;">Approved</th>
+                                <th class="text-end">Cost</th>
+                                <th>Supplier</th>
+                                <th>PO number</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for part in always_parts %}
+                            {% set row_status = (part.derived_status or part.stock_status) if part.stock_status else part.stock_status %}
+                            <tr class="part-row status-row-{{ row_status.value if row_status else 'unknown' }} {% if not part.approved %}is-unapproved{% endif %}"
+                                data-updated="{{ part.updated_at.strftime('%Y-%m-%d %H:%M') if part.updated_at else '' }}">
+                                <td class="lock-cell"></td>
+
+                                <td class="partno-cell">
+                                    <span class="partno-value">{{ part.part_no or "" }}</span>
+                                </td>
+
+                                <td class="name-cell">
+                                    {{ part.name or "" }}
+                                    {% if not part.approved %}
+                                        <span class="pill pill-amber small-pill">Not approved</span>
+                                    {% endif %}
+                                    {% if part.qty_received and part.qty_required and part.qty_received < part.qty_required %}
+                                        <span class="pill pill-amber small-pill">
+                                            Recvd {{ part.qty_received }}/{{ part.qty_required }}
+                                        </span>
+                                    {% endif %}
+                                </td>
+
+                                <td class="qty-cell text-end">
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        name="qty_{{ part.id }}"
+                                        value="{{ part.qty_required or 1 }}"
+                                        class="qty-input"
+                                    >
+                                </td>
+
+                                {# STORES-AWARE STOCK CELL #}
+                                <td class="stock-cell text-end">
+                                    {{ render_stock(part) }}
+                                </td>
+
+                                <td class="status-cell" style="min-width: 160px;">
+                                    <div class="status-wrapper">
+                                        {% set sel_status = part.derived_status if part.derived_status else part.stock_status %}
+                                        {% set lock_status = part.derived_status == StockStatusEnum.IN_STOCK %}
+                                        <select
+                                            name="stock_status_{{ part.id }}"
+                                            class="status-select"
+                                            style="min-width: 120px;"
+                                            {% if lock_status %}disabled{% endif %}
+                                        >
+                                            {% for status in StockStatusEnum %}
+                                                <option value="{{ status.value }}"
+                                                        {% if sel_status == status %}selected{% endif %}>
+                                                    {{ status_labels.get(status.value, status.value) }}
+                                                </option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                </td>
+
+                                <td class="approved-cell" style="width:110px; text-align:center;">
+                                    <input type="checkbox" name="approved_{{ part.id }}" {% if part.approved %}checked{% endif %} style="margin: 0 auto; display: block;">
+                                </td>
+
+                                <td class="text-end">
+                                    {% set cost_val = cost_by_part_id.get(part.id) if cost_by_part_id is defined else None %}
+                                    {{ format_currency(cost_val) }}
+                                </td>
+                                <td>
+                                    <input
+                                        type="text"
+                                        name="supplier_{{ part.id }}"
+                                        value="{{ part.supplier or '' }}"
+                                        class="notes-input"
+                                    >
+                                </td>
+
+                                <td>
+                                    <input
+                                        type="text"
+                                        name="po_number_{{ part.id }}"
+                                        value="{{ part.po_number or '' }}"
+                                        class="notes-input"
+                                    >
+                                </td>
+
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                    </div>
+                </div>
+            </details>
+        {% endif %}
+
+        {# =========================
+           ELECTRICAL / TEST ITEMS
+           ========================= #}
+        {% if test_parts %}
+            <details class="survey-section">
+                <summary class="section-summary">
+                    Electrical / test items
+                </summary>
+                <div class="section-body">
+                    <div class="table-scroll table-scroll-wide">
+                    <table class="strip-survey-table parts-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 32px;"></th>
+                                <th>Part no</th>
+                                <th>Name</th>
+                                <th>Qty</th>
+                                <th>Stock</th>
+                                <th>Status</th>
+                                <th style="width: 110px; text-align: center;">Approved</th>
+                                <th class="text-end">Cost</th>
+                                <th>Supplier</th>
+                                <th>PO number</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for part in test_parts %}
+                            {% set row_status = (part.derived_status or part.stock_status) if part.stock_status else part.stock_status %}
+                            <tr class="part-row status-row-{{ row_status.value if row_status else 'unknown' }} {% if not part.approved %}is-unapproved{% endif %}"
+                                data-updated="{{ part.updated_at.strftime('%Y-%m-%d %H:%M') if part.updated_at else '' }}">
+                                <td class="lock-cell"></td>
+
+                                <td class="partno-cell">
+                                    <span class="partno-value">{{ part.part_no or "" }}</span>
+                                </td>
+
+                                <td class="name-cell">
+                                    {{ part.name or "" }}
+                                    {% if not part.approved %}
+                                        <span class="pill pill-amber small-pill">Not approved</span>
+                                    {% endif %}
+                                    {% if part.qty_received and part.qty_required and part.qty_received < part.qty_required %}
+                                        <span class="pill pill-amber small-pill">
+                                            Recvd {{ part.qty_received }}/{{ part.qty_required }}
+                                        </span>
+                                    {% endif %}
+                                </td>
+
+                                <td class="qty-cell text-end">
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        name="qty_{{ part.id }}"
+                                        value="{{ part.qty_required or 1 }}"
+                                        class="qty-input"
+                                    >
+                                </td>
+
+                                {# STORES-AWARE STOCK CELL #}
+                                <td class="stock-cell text-end">
+                                    {{ render_stock(part) }}
+                                </td>
+
+                                <td class="status-cell" style="min-width: 160px;">
+                                    <div class="status-wrapper">
+                                        {% set sel_status = part.derived_status if part.derived_status else part.stock_status %}
+                                        {% set lock_status = part.derived_status == StockStatusEnum.IN_STOCK %}
+                                        <select
+                                            name="stock_status_{{ part.id }}"
+                                            class="status-select"
+                                            style="min-width: 120px;"
+                                            {% if lock_status %}disabled{% endif %}
+                                        >
+                                            {% for status in StockStatusEnum %}
+                                                <option value="{{ status.value }}"
+                                                        {% if sel_status == status %}selected{% endif %}>
+                                                    {{ status_labels.get(status.value, status.value) }}
+                                                </option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                </td>
+
+                                <td class="approved-cell" style="width:110px; text-align:center;">
+                                    <input type="checkbox" name="approved_{{ part.id }}" {% if part.approved %}checked{% endif %} style="margin: 0 auto; display: block;">
+                                </td>
+
+                                <td class="text-end">
+                                    {% set cost_val = cost_by_part_id.get(part.id) if cost_by_part_id is defined else None %}
+                                    {{ format_currency(cost_val) }}
+                                </td>
+                                <td>
+                                    <input
+                                        type="text"
+                                        name="supplier_{{ part.id }}"
+                                        value="{{ part.supplier or '' }}"
+                                        class="notes-input"
+                                    >
+                                </td>
+
+                                <td>
+                                    <input
+                                        type="text"
+                                        name="po_number_{{ part.id }}"
+                                        value="{{ part.po_number or '' }}"
+                                        class="notes-input"
+                                    >
+                                </td>
+
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                    </div>
+                </div>
+            </details>
+        {% endif %}
+
+        {# =========================
+           BIG-TICKET ITEMS
+           ========================= #}
+        {% if big_ticket_parts %}
+            <details class="survey-section">
+                <summary class="section-summary">
+                    Big-ticket items
+                </summary>
+                <div class="section-body">
+                    <div class="table-scroll table-scroll-wide">
+                    <table class="strip-survey-table parts-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 32px;"></th>
+                                <th>Part no</th>
+                                <th>Name</th>
+                                <th>Qty</th>
+                                <th>Stock</th>
+                                <th>Status</th>
+                                        <th style="width: 110px; text-align:center;">Approved</th>
+                                <th>Supplier</th>
+                                <th>PO number</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for part in big_ticket_parts %}
+                            {% set row_status = (part.derived_status or part.stock_status) if part.stock_status else part.stock_status %}
+                            <tr class="part-row status-row-{{ row_status.value if row_status else 'unknown' }} {% if not part.approved %}is-unapproved{% endif %}"
+                                data-updated="{{ part.updated_at.strftime('%Y-%m-%d %H:%M') if part.updated_at else '' }}">
+                                <td class="lock-cell"></td>
+
+                                <td class="partno-cell">
+                                    <span class="partno-value">{{ part.part_no or "" }}</span>
+                                </td>
+
+                                <td class="name-cell">
+                                    {{ part.name or "" }}
+                                    {% if not part.approved %}
+                                        <span class="pill pill-amber small-pill">Not approved</span>
+                                    {% endif %}
+                                    {% if part.qty_received and part.qty_required and part.qty_received < part.qty_required %}
+                                        <span class="pill pill-amber small-pill">
+                                            Recvd {{ part.qty_received }}/{{ part.qty_required }}
+                                        </span>
+                                    {% endif %}
+                                </td>
+
+                                <td class="qty-cell text-end">
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        name="qty_{{ part.id }}"
+                                        value="{{ part.qty_required or 1 }}"
+                                        class="qty-input"
+                                    >
+                                </td>
+
+                                {# STORES-AWARE STOCK CELL #}
+                                <td class="stock-cell text-end">
+                                    {{ render_stock(part) }}
+                                </td>
+
+                                <td class="status-cell">
+                                    <div class="status-wrapper">
+                                        {% set sel_status = part.derived_status if part.derived_status else part.stock_status %}
+                                        {% set lock_status = part.derived_status == StockStatusEnum.IN_STOCK %}
+                                        <select
+                                            name="stock_status_{{ part.id }}"
+                                            class="status-select"
+                                            style="min-width: 140px;"
+                                            {% if lock_status %}disabled{% endif %}
+                                        >
+                                            {% for status in StockStatusEnum %}
+                                                <option value="{{ status.value }}"
+                                                        {% if sel_status == status %}selected{% endif %}>
+                                                    {{ status_labels.get(status.value, status.value) }}
+                                                </option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                </td>
+
+                                <td class="approved-cell" style="width:110px; text-align:center;">
+                                    <input type="checkbox" name="approved_{{ part.id }}" {% if part.approved %}checked{% endif %} style="margin: 0 auto; display: block;">
+                                </td>
+
+                                <td>
+                                    <input
+                                        type="text"
+                                        name="supplier_{{ part.id }}"
+                                        value="{{ part.supplier or '' }}"
+                                        class="notes-input"
+                                    >
+                                </td>
+
+                                <td>
+                                    <input
+                                        type="text"
+                                        name="po_number_{{ part.id }}"
+                                        value="{{ part.po_number or '' }}"
+                                        class="notes-input"
+                                    >
+                                </td>
+
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                    </div>
+                </div>
+            </details>
+        {% endif %}
+
+        {# =========================
+           KITS
+           ========================= #}
+        {% if kit_parts_by_name %}
+            {% for kit_name, kit_parts in kit_parts_by_name.items() %}
+                <details class="survey-section">
+                    <summary class="section-summary">
+                        Kit – {{ kit_name }}
+                    </summary>
+                    <div class="section-body">
+                    <div class="table-scroll table-scroll-wide">
+                    <table class="strip-survey-table parts-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 32px;"></th>
+                                    <th>Part no</th>
+                                    <th style="min-width: 260px;">Name</th>
+                                    <th style="width: 60px;">Qty</th>
+                                    <th style="width: 120px;">Stock</th>
+                                    <th style="width: 160px;">Status</th>
+                                <th style="width: 110px; text-align:center;">Approved</th>
+                                    <th class="text-end">Cost</th>
+                                    <th>Supplier</th>
+                                    <th>PO number</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            {% for part in kit_parts %}
+                                {% set row_status = (part.derived_status or part.stock_status) if part.stock_status else part.stock_status %}
+                                <tr class="part-row status-row-{{ row_status.value if row_status else 'unknown' }} {% if not part.approved %}is-unapproved{% endif %}"
+                                    data-updated="{{ part.updated_at.strftime('%Y-%m-%d %H:%M') if part.updated_at else '' }}">
+                                    <td class="lock-cell"></td>
+
+                                    <td class="partno-cell">
+                                        <span class="partno-value">{{ part.part_no or "" }}</span>
+                                    </td>
+
+                                    <td class="name-cell">
+                                        {{ part.name or "" }}
+                                    {% if not part.approved %}
+                                        <span class="pill pill-amber small-pill">Not approved</span>
+                                    {% endif %}
+                                    {% if part.qty_received and part.qty_required and part.qty_received < part.qty_required %}
+                                        <span class="pill pill-amber small-pill">
+                                            Recvd {{ part.qty_received }}/{{ part.qty_required }}
+                                        </span>
+                                    {% endif %}
+                                </td>
+
+                                    <td class="qty-cell text-end" style="width:60px;">
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            name="qty_{{ part.id }}"
+                                            value="{{ part.qty_required or 1 }}"
+                                            class="qty-input"
+                                            style="max-width:60px;"
+                                        >
+                                    </td>
+
+                                    {# STORES-AWARE STOCK CELL #}
+                                    <td class="stock-cell text-end">
+                                        {{ render_stock(part) }}
+                                    </td>
+
+                    <td class="status-cell" style="min-width: 200px;">
+                        {% set sel_status = part.derived_status if part.derived_status else part.stock_status %}
+                        {% set lock_status = part.derived_status == StockStatusEnum.IN_STOCK %}
+                        <div class="status-wrapper">
+                            <select
+                                name="stock_status_{{ part.id }}"
+                                class="status-select"
+                                style="min-width: 140px;"
+                                {% if lock_status %}disabled{% endif %}
+                            >
+                                {% for status in StockStatusEnum %}
+                                    <option value="{{ status.value }}"
+                                            {% if sel_status == status %}selected{% endif %}>
+                                        {{ status_labels.get(status.value, status.value) }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </td>
+
+                                        <td class="approved-cell" style="width:110px; text-align:center;">
+                                            <input type="checkbox" name="approved_{{ part.id }}" {% if part.approved %}checked{% endif %} style="margin: 0 auto; display: block;">
+                                        </td>
+
+                                    <td class="text-end">
+                                        {% set cost_val = cost_by_part_id.get(part.id) if cost_by_part_id is defined else None %}
+                                        {{ format_currency(cost_val) }}
+                                    </td>
+                                    <td>
+                                        <input
+                                            type="text"
+                                            name="supplier_{{ part.id }}"
+                                            value="{{ part.supplier or '' }}"
+                                            class="notes-input"
+                                        >
+                                    </td>
+
+                                    <td>
+                                        <input
+                                            type="text"
+                                            name="po_number_{{ part.id }}"
+                                            value="{{ part.po_number or '' }}"
+                                            class="notes-input"
+                                        >
+                                    </td>
+
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    </div>
+                </div>
+            </details>
+        {% endfor %}
+        {% endif %}
+
+        {# =========================
+           STANDARD ITEMS – grouped
+           ========================= #}
+        {% if standard_parts %}
+            <h2 style="margin-top: 2rem;">Standard items</h2>
+
+            {% set ns = namespace(current_group=None) %}
+
+            {% for part in standard_parts %}
+                {# Group key: e.g. "TA 0100" based on section text #}
+                {% set sec_parts = (part.section or "").split(" ") %}
+                {% set group_key = (sec_parts[0] ~ " " ~ sec_parts[1]) if sec_parts|length >= 2 else (part.section or "General") %}
+
+                {% if group_key != ns.current_group %}
+                    {% if not loop.first %}
+                        </tbody>
+                    </table>
+                </div>
+            </details>
+        {% endif %}
+
+                    {% set ns.current_group = group_key %}
+
+                    <details class="survey-section">
+                        <summary class="section-summary">
+                            {{ part.section or group_key }}
+                        </summary>
+
+                        <div class="section-body">
+                            <div class="table-scroll table-scroll-wide">
+                            <table class="strip-survey-table parts-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 32px;"></th>
+                                        <th>Part no</th>
+                                        <th>Name</th>
+                                        <th>Qty</th>
+                                        <th>Stock</th>
+                                        <th>Status</th>
+                                    <th style="width: 110px; text-align:center;">Approved</th>
+                                        <th class="text-end">Cost</th>
+                                        <th>Supplier</th>
+                                        <th>PO number</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                {% endif %}
+
+                {% set row_status = (part.derived_status or part.stock_status) if part.stock_status else part.stock_status %}
+                <tr class="part-row status-row-{{ row_status.value if row_status else 'unknown' }} {% if not part.approved %}is-unapproved{% endif %}"
+                    data-updated="{{ part.updated_at.strftime('%Y-%m-%d %H:%M') if part.updated_at else '' }}">
+                    <td class="lock-cell"></td>
+
+                    <td class="partno-cell">
+                        <span class="partno-value">{{ part.part_no or "" }}</span>
+                    </td>
+
+                    <td class="name-cell">
+                        {{ part.name or "" }}
+                        {% if not part.approved %}
+                            <span class="pill pill-amber small-pill">Not approved</span>
+                        {% endif %}
+                    </td>
+
+                    <td class="qty-cell text-end">
+                        <input
+                            type="number"
+                            min="1"
+                            name="qty_{{ part.id }}"
+                            value="{{ part.qty_required or 1 }}"
+                            class="qty-input"
+                        >
+                    </td>
+
+                    {# STORES-AWARE STOCK CELL #}
+                    <td class="stock-cell text-end">
+                        {{ render_stock(part) }}
+                    </td>
+
+                                    <td class="status-cell" style="min-width: 160px;">
+                                        <div class="status-wrapper">
+                                            {% set sel_status = part.derived_status if part.derived_status else part.stock_status %}
+                                            {% set lock_status = part.derived_status == StockStatusEnum.IN_STOCK %}
+                                            <select
+                                                name="stock_status_{{ part.id }}"
+                                                class="status-select"
+                                                style="min-width: 120px;"
+                                                {% if lock_status %}disabled{% endif %}
+                                            >
+                                                {% for status in StockStatusEnum %}
+                                                    <option value="{{ status.value }}"
+                                                            {% if sel_status == status %}selected{% endif %}>
+                                                        {{ status_labels.get(status.value, status.value) }}
+                                                    </option>
+                                                {% endfor %}
+                                            </select>
+                                        </div>
+                                    </td>
+
+                    <td class="approved-cell" style="width:110px; text-align:center;">
+                        <input type="checkbox" name="approved_{{ part.id }}" {% if part.approved %}checked{% endif %} style="margin: 0 auto; display: block;">
+                    </td>
+
+                                        <td class="text-end">
+                                            {% set cost_val = cost_by_part_id.get(part.id) if cost_by_part_id is defined else None %}
+                                            {{ format_currency(cost_val) }}
+                                        </td>
+                                        <td>
+                                            <input
+                                                type="text"
+                                                name="supplier_{{ part.id }}"
+                                                value="{{ part.supplier or '' }}"
+                                                class="notes-input"
+                                            >
+                                        </td>
+
+                    <td>
+                        <input
+                            type="text"
+                            name="po_number_{{ part.id }}"
+                            value="{{ part.po_number or '' }}"
+                            class="notes-input"
+                        >
+                    </td>
+
+                                    </tr>
+
+                {% if loop.last %}
+                                </tbody>
+                            </table>
+                            </div>
+                        </div>
+                    </details>
+                {% endif %}
+            {% endfor %}
+        {% endif %}
+    {% endif %}
+
+    {% if has_any_parts %}
+    <div class="card" style="margin-top: 1rem; text-align: right;">
+        <strong>Total cost:</strong>
+        {{ format_currency(total_cost_full) }}
+    </div>
+    {% endif %}
+
+    {% if total_pages > 1 %}
+        <div class="toolbar-row" style="margin-top:0.75rem;">
+            <div class="toolbar-block">
+                <span class="text-muted">Page {{ page }} of {{ total_pages }} ({{ filtered_count }} items)</span>
+            </div>
+            <div class="toolbar-block inline-actions">
+                {% if page > 1 %}
+                    <a class="button secondary parts-page-link" href="{{ url_for('parts.job_parts', job_id=job.id, q=search_query or None, status=filter_status or None, unapproved='1' if unapproved_only else None, page=page-1, per_page=per_page) }}">Prev</a>
+                {% endif %}
+                {% if page < total_pages %}
+                    <a class="button secondary parts-page-link" href="{{ url_for('parts.job_parts', job_id=job.id, q=search_query or None, status=filter_status or None, unapproved='1' if unapproved_only else None, page=page+1, per_page=per_page) }}">Next</a>
+                {% endif %}
+            </div>
+        </div>
+    {% endif %}
+
+    <div class="card gate-card">
+        <div class="gate-left">
+            <strong>Pick list gate</strong>
+            <div class="text-muted">All lines must be approved and not Pending/To order.</div>
+            <div class="pill-row">
+                <span class="pill {% if unapproved_count %}pill-amber{% else %}pill-good{% endif %}">
+                    Unapproved: {{ unapproved_count }}
+                </span>
+                <span class="pill {% if not_ordered_count %}pill-amber{% else %}pill-good{% endif %}">
+                    Not ordered: {{ not_ordered_count }}
+                </span>
+            </div>
+        </div>
+        <div class="gate-actions">
+            <button type="submit"
+                    class="secondary"
+                    name="action"
+                    value="approve_ready_page"
+                    {% if read_only %}disabled{% endif %}>
+                Approve ready (this page)
+            </button>
+            <button type="submit"
+                    class="secondary"
+                    name="action"
+                    value="approve_ready_all"
+                    {% if read_only %}disabled{% endif %}>
+                Approve ready (all filtered)
+            </button>
+        </div>
+    </div>
+
+    <div class="actions actions-tight sticky-actions">
+
+        <button type="button"
+                onclick="window.location='{{ url_for('jobs.job_detail', job_id=job.id) }}'">
+            &larr; Back to job
+        </button>
+
+        <button type="submit" name="action" value="save" {% if read_only %}disabled{% endif %} {{ testid("parts-save")|safe }}>
+            Save parts list
+        </button>
+
+        <button type="submit"
+                id="issue-picklist-btn"
+                data-unapproved="{{ unapproved_count }}"
+                data-notordered="{{ not_ordered_count }}"
+                name="action"
+                value="issue_picklist"
+                class="secondary"
+                {% if read_only %}disabled{% endif %}
+                {{ testid("parts-issue-picklist")|safe }}>
+            Issue pick list
+        </button>
+
+        <button type="submit" name="action" value="move_to_build" class="primary" {% if read_only %}disabled{% endif %} {{ testid("parts-move-build")|safe }}>
+            Move to build
+        </button>
+    </div>
+</form>
+</div>
+
+<script nonce="{{ csp_nonce() }}">
+(function() {
+    // Disable pick list if gates not met
+    const pickBtn = document.getElementById('issue-picklist-btn');
+    if (pickBtn) {
+        const unapproved = parseInt(pickBtn.dataset.unapproved || "0", 10);
+        const notOrdered = parseInt(pickBtn.dataset.notordered || "0", 10);
+        if (unapproved > 0 || notOrdered > 0) {
+            pickBtn.disabled = true;
+            pickBtn.title = `Resolve ${unapproved} unapproved and ${notOrdered} not ordered before issuing`;
+        }
+    }
+
+    // Inline status shortcuts (one click + save)
+    const form = document.getElementById('parts-form');
+    const isReadOnly = !!(form && form.dataset.readonly === "1");
+    if (isReadOnly) {
+        form.querySelectorAll('input, select, textarea').forEach((field) => {
+            field.disabled = true;
+        });
+        form.querySelectorAll('button[type="submit"]').forEach((btn) => {
+            btn.disabled = true;
+        });
+    }
+    const saveBtn = form?.querySelector('button[type="submit"][name="action"][value="save"]') || null;
+    document.querySelectorAll('select[name^="stock_status_"]').forEach((sel) => {
+        const wrapper = sel.closest('.status-wrapper');
+        if (!wrapper) return;
+        const actions = document.createElement('div');
+        actions.className = 'status-quick-actions';
+        const btnOrdered = document.createElement('button');
+        btnOrdered.type = 'button';
+        btnOrdered.className = 'quick-status-btn secondary';
+        btnOrdered.dataset.status = 'ordered';
+        btnOrdered.textContent = 'Ordered';
+        const btnReceived = document.createElement('button');
+        btnReceived.type = 'button';
+        btnReceived.className = 'quick-status-btn secondary';
+        btnReceived.dataset.status = 'received';
+        btnReceived.textContent = 'Received';
+        if (isReadOnly) {
+            btnOrdered.disabled = true;
+            btnReceived.disabled = true;
+        }
+        actions.appendChild(btnOrdered);
+        actions.appendChild(btnReceived);
+        wrapper.appendChild(actions);
+
+        actions.addEventListener('click', (ev) => {
+            const target = ev.target;
+            if (!(target instanceof HTMLButtonElement)) return;
+            const status = target.dataset.status;
+            if (!status) return;
+            sel.value = status;
+            if (form) {
+                if (saveBtn && form.requestSubmit) {
+                    form.requestSubmit(saveBtn);
+                } else {
+                    form.submit();
+                }
+            }
+        });
+    });
+
+    // Activity hint: show last updated on each row
+    document.querySelectorAll('tr.part-row').forEach((row) => {
+        const updated = row.getAttribute('data-updated') || '';
+        if (!updated) return;
+        const cell = row.querySelector('.name-cell');
+        if (!cell) return;
+        const hint = document.createElement('div');
+        hint.className = 'text-muted';
+        hint.style.fontSize = '0.75rem';
+        hint.textContent = `Updated ${updated}`;
+        cell.appendChild(hint);
+    });
+
+    // Expand / collapse all sections
+    const expandAll = document.getElementById('expand-all');
+    const collapseAll = document.getElementById('collapse-all');
+    const toggleDetails = (open) => {
+        document.querySelectorAll('.survey-section').forEach((el) => el.open = open);
+    };
+    if (expandAll) expandAll.addEventListener('click', () => toggleDetails(true));
+    if (collapseAll) collapseAll.addEventListener('click', () => toggleDetails(false));
+
+    // Preserve scroll between saves
+    const scrollKey = "parts-scroll-pos";
+    const saved = sessionStorage.getItem(scrollKey);
+    if (saved) {
+        window.scrollTo(0, parseFloat(saved));
+    }
+    window.addEventListener('beforeunload', () => {
+        sessionStorage.setItem(scrollKey, window.scrollY.toString());
+    });
+
+    // Persist changes before paging to avoid losing checkbox state
+    document.querySelectorAll('.parts-page-link').forEach((link) => {
+        link.addEventListener('click', (ev) => {
+            if (!form) return;
+            ev.preventDefault();
+            const nextInput = document.getElementById('parts-next');
+            if (nextInput) nextInput.value = link.getAttribute('href') || "";
+            form.submit();
+        });
+    });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,567 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card" style="margin-bottom:1rem;">
+    <h1 style="margin-top:0;">Exploded View Wizard</h1>
+    <div class="text-muted">Template: {{ template.name }} | Section: {{ section.name }}</div>
+    <div style="margin-top:0.75rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
+        <a class="button secondary" href="{{ url_for('illustrations_bp.illustration_wizard', template_id=template.id, section_id=section.id, step='0') }}">Overview</a>
+        <a class="button secondary" href="{{ url_for('illustrations_bp.illustration_wizard', template_id=template.id, section_id=section.id, step='4', page_id=page.id if page else None) }}">POS Labels</a>
+        <a class="button secondary" href="{{ url_for('illustrations_bp.illustration_wizard', template_id=template.id, section_id=section.id, step='5', page_id=page.id if page else None) }}">Hotspots</a>
+    </div>
+</div>
+
+{% if step == '0' %}
+<div class="card">
+    <h2>Existing Pages</h2>
+    <div class="text-muted" style="margin-bottom:0.75rem;">
+        Images and parts lists are pulled from the template import. Use POS Labels and Hotspots to map the diagram.
+    </div>
+    <form method="post">
+        {% include "_csrf.html" %}
+        <table class="strip-survey-table">
+            <thead>
+                <tr>
+                    <th style="width:90px;">Order</th>
+                    <th>Title</th>
+                    <th>Status</th>
+                    <th>POS Rows</th>
+                    <th>Labels</th>
+                    <th>Unmapped</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for stat in page_stats %}
+                    <tr>
+                        <td><input type="number" class="text-input" name="order_{{ stat.page.id }}" value="{{ loop.index }}"></td>
+                        <td>{{ stat.page.title or 'Untitled' }}</td>
+                        <td>{{ stat.page.status }}</td>
+                        <td>{{ stat.rows }}</td>
+                        <td>{{ stat.labels }}</td>
+                        <td>{{ stat.unmapped }}</td>
+                        <td>
+                            <a class="button secondary small" href="{{ url_for('illustrations_bp.illustration_wizard', template_id=template.id, section_id=section.id, step='4', page_id=stat.page.id) }}">Edit</a>
+                            <button class="button secondary small archive-btn" type="submit" form="archive-form" data-page-id="{{ stat.page.id }}">Archive</button>
+                            <button class="button secondary small delete-btn" type="submit" form="delete-form" data-page-id="{{ stat.page.id }}">Delete</button>
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="7" class="text-muted">No illustration pages yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <button type="submit" class="button secondary" name="action" value="reorder" style="margin-top:0.75rem;">Save Order</button>
+    </form>
+    <form id="archive-form" method="post" style="display:none;">
+        {% include "_csrf.html" %}
+        <input type="hidden" name="action" value="archive">
+        <input type="hidden" name="page_id" id="archive-page-id" value="">
+    </form>
+    <form id="delete-form" method="post" style="display:none;">
+        {% include "_csrf.html" %}
+        <input type="hidden" name="action" value="delete_page">
+        <input type="hidden" name="page_id" id="delete-page-id" value="">
+    </form>
+</div>
+
+<div class="card" style="margin-top:1rem;">
+    <h2>Import PDF</h2>
+    <div class="text-muted" style="margin-bottom:0.75rem;">
+        Upload a PDF to generate illustration pages and import parts from the extractor CSV.
+    </div>
+    {% if pdf_profiles_error %}
+        <div class="text-muted" style="margin-bottom:0.75rem;">{{ pdf_profiles_error }}</div>
+    {% endif %}
+    <form method="post" enctype="multipart/form-data">
+        {% include "_csrf.html" %}
+        <input type="hidden" name="action" value="import_pdf">
+        <div style="display:flex; gap:1rem; flex-wrap:wrap; align-items:flex-end;">
+            <div>
+                <label class="field-label">PDF File</label>
+                <input type="file" name="pdf_file" accept="application/pdf" required>
+            </div>
+            <div>
+                <label class="field-label">Profile</label>
+                <select name="pdf_profile" class="status-select">
+                    <option value="auto">auto</option>
+                    {% for profile in pdf_profiles %}
+                        {% if profile != "auto" %}
+                            <option value="{{ profile }}">{{ profile }}</option>
+                        {% endif %}
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <button type="submit" class="button primary">Import PDF</button>
+            </div>
+        </div>
+    </form>
+</div>
+
+<script nonce="{{ csp_nonce() }}">
+(() => {
+  const archiveButtons = document.querySelectorAll('.archive-btn');
+  const pageInput = document.getElementById('archive-page-id');
+  const deleteButtons = document.querySelectorAll('.delete-btn');
+  const deleteInput = document.getElementById('delete-page-id');
+  archiveButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (pageInput) {
+        pageInput.value = btn.getAttribute('data-page-id') || '';
+      }
+    });
+  });
+  deleteButtons.forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      const pageId = btn.getAttribute('data-page-id') || '';
+      if (!pageId) return;
+      if (!confirm('Delete this illustration page? This cannot be undone.')) {
+        event.preventDefault();
+        return;
+      }
+      if (deleteInput) {
+        deleteInput.value = pageId;
+      }
+    });
+  });
+})();
+</script>
+
+{% endif %}
+
+{% if step == '1' and page %}
+<div class="card">
+    <h2>Illustration</h2>
+    <div class="text-muted">Status: {{ page.status }}</div>
+    <div style="display:flex; gap:1rem; flex-wrap:wrap; margin-top:0.75rem;">
+        <div style="flex:2; min-width:280px;">
+            <img src="{{ url_for('uploaded_file', filename=page.image_path) }}" alt="{{ page.title or 'Illustration' }}" style="max-width:100%; border:1px solid #1c2a3a; border-radius:6px;">
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if step == '2' and page %}
+<div class="card">
+    <h2>Parts List</h2>
+    <div class="text-muted">Parts are sourced from the template import. Use POS Labels and Hotspots to map.</div>
+</div>
+
+<div class="card" style="margin-top:1rem;">
+    <h2>Parts Rows</h2>
+    <form method="post">
+        {% include "_csrf.html" %}
+        <input type="hidden" name="action" value="update_rows">
+        <table class="strip-survey-table">
+            <thead>
+                <tr>
+                    <th style="width:80px;">POS</th>
+                    <th style="width:160px;">Part No</th>
+                    <th>Description</th>
+                    <th style="width:80px;">Qty</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in parts_rows %}
+                <tr>
+                    <td><input type="number" class="text-input" name="pos_{{ row.id }}" value="{{ row.pos }}"></td>
+                    <td><input type="text" class="text-input" name="part_no_{{ row.id }}" value="{{ row.part_no or '' }}"></td>
+                    <td><input type="text" class="text-input" name="designation_{{ row.id }}" value="{{ row.designation or '' }}"></td>
+                    <td><input type="number" class="text-input" name="qty_{{ row.id }}" value="{{ row.qty or 1 }}"></td>
+                </tr>
+                {% else %}
+                <tr><td colspan="4" class="text-muted">No parts imported yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <button type="submit" class="button primary" style="margin-top:0.75rem;">Save Rows</button>
+    </form>
+</div>
+{% endif %}
+
+{% if step == '3' and page %}
+<div class="card">
+    <h2>Display Options</h2>
+    <form method="post">
+        {% include "_csrf.html" %}
+        <input type="hidden" name="action" value="save_display">
+        <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+            <div>
+                <label class="field-label">Sort</label>
+                <select name="sort_mode" class="status-select">
+                    <option value="pos">POS order</option>
+                    <option value="risk">Risk-first</option>
+                    <option value="custom">Custom</option>
+                </select>
+            </div>
+            <div>
+                <label class="field-label">Grouping</label>
+                <select name="grouping" class="status-select">
+                    <option value="none">None</option>
+                    <option value="fasteners">Fasteners vs Assemblies</option>
+                </select>
+            </div>
+            <div>
+                <label class="field-label">Filters</label>
+                <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.25rem;">
+                    <label><input type="checkbox" name="filters" value="undecided"> Undecided</label>
+                    <label><input type="checkbox" name="filters" value="exceptions"> Exceptions</label>
+                    <label><input type="checkbox" name="filters" value="all"> All</label>
+                </div>
+            </div>
+        </div>
+        <div style="display:flex; gap:1rem; flex-wrap:wrap; margin-top:0.75rem;">
+            <label><input type="checkbox" name="bulk_apply"> Enable bulk apply</label>
+            <label><input type="checkbox" name="next_undecided"> Enable next undecided</label>
+        </div>
+        <button type="submit" class="button primary" style="margin-top:0.75rem;">Save</button>
+    </form>
+</div>
+{% endif %}
+
+{% if step == '4' and page %}
+<div class="card">
+    <h2>POS Label Positions</h2>
+    <div class="text-muted">Click a POS row, then click the image to set the label position.</div>
+    <div style="display:flex; gap:1rem; flex-wrap:wrap; margin-top:0.75rem;">
+        <div style="flex:2; min-width:280px;">
+            <div id="label-canvas" style="position:relative; border:1px solid #1c2a3a; border-radius:6px; overflow:hidden;">
+                <img id="label-image" src="{{ url_for('uploaded_file', filename=page.image_path) }}" alt="{{ page.title or 'Illustration' }}" style="max-width:100%; display:block;">
+                <div id="label-overlay" style="position:absolute; inset:0; pointer-events:auto;">
+                    {% for label in labels %}
+                        <div class="pos-label" data-pos="{{ label.pos }}" data-label-id="{{ label.id }}" style="position:absolute; left:{{ '%.2f'|format(label.x_norm * 100) }}%; top:{{ '%.2f'|format(label.y_norm * 100) }}%; transform:translate(-50%,-50%); background:#1f3b57; color:#fff; padding:2px 6px; border-radius:10px; font-size:12px; cursor:pointer;">
+                            {{ label.pos }}
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        <div style="flex:1; min-width:220px;">
+            <ul style="list-style:none; padding-left:0; margin:0; max-height:420px; overflow:auto;">
+                {% for row in parts_rows %}
+                    <li style="margin-bottom:0.25rem;">
+                        <button type="button" class="button secondary small pos-select" data-pos="{{ row.pos }}">POS {{ row.pos }}</button>
+                        <span class="text-muted">{{ row.part_no or row.designation or '' }}</span>
+                    </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+</div>
+<div class="card" style="margin-top:1rem;">
+    <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+        <a class="button secondary" href="{{ url_for('templates_bp.template_wizard', template_id=template.id, step='3') }}">← Back</a>
+        <button type="button" class="button primary" id="pos-confirm">Confirm / Save</button>
+    </div>
+</div>
+
+<script nonce="{{ csp_nonce() }}">
+(() => {
+    const buttons = document.querySelectorAll('.pos-select');
+    const image = document.getElementById('label-image');
+    const overlay = document.getElementById('label-overlay');
+    const canvas = document.getElementById('label-canvas');
+    let activePos = null;
+
+    buttons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            buttons.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            activePos = btn.getAttribute('data-pos');
+        });
+    });
+
+    if (canvas && image && overlay) {
+        canvas.addEventListener('click', (e) => {
+            const target = e.target.closest('.pos-label');
+            if (target) {
+                const labelId = target.dataset.labelId;
+                if (!labelId) {
+                    return;
+                }
+                if (!confirm('Delete this POS marker?')) {
+                    return;
+                }
+                fetch('{{ url_for('illustrations_bp.api_delete_pos_label', page_id=page.id, label_id=0) }}'.replace('/0', '/' + labelId), {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': '{{ csrf_token() }}'
+                    }
+                }).then(resp => resp.json()).then(data => {
+                    if (data.error) {
+                        alert(data.error);
+                        return;
+                    }
+                    target.remove();
+                });
+                return;
+            }
+
+            if (!activePos) {
+                return;
+            }
+            const rect = image.getBoundingClientRect();
+            const x = (e.clientX - rect.left) / rect.width;
+            const y = (e.clientY - rect.top) / rect.height;
+            fetch('{{ url_for('illustrations_bp.api_set_pos_label', page_id=page.id) }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': '{{ csrf_token() }}'
+                },
+                body: JSON.stringify({pos: parseInt(activePos, 10), x_norm: x, y_norm: y})
+            }).then(resp => resp.json()).then(data => {
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+                const label = document.createElement('div');
+                label.className = 'pos-label';
+                label.dataset.pos = activePos;
+                label.dataset.labelId = data.label_id || '';
+                label.textContent = activePos;
+                label.style.position = 'absolute';
+                label.style.transform = 'translate(-50%,-50%)';
+                label.style.background = '#1f3b57';
+                label.style.color = '#fff';
+                label.style.padding = '2px 6px';
+                label.style.borderRadius = '10px';
+                label.style.fontSize = '12px';
+                label.style.cursor = 'pointer';
+                overlay.appendChild(label);
+                label.style.left = (data.x_norm * 100).toFixed(2) + '%';
+                label.style.top = (data.y_norm * 100).toFixed(2) + '%';
+            });
+        });
+    }
+
+    const confirmBtn = document.getElementById('pos-confirm');
+    if (confirmBtn) {
+        confirmBtn.addEventListener('click', () => {
+            window.location.href = "{{ url_for('templates_bp.template_wizard', template_id=template.id, step='3') }}";
+        });
+    }
+})();
+</script>
+{% endif %}
+
+{% if step == '5' and page %}
+<div class="card">
+    <h2>Hotspot Editor (v2)</h2>
+    <div class="text-muted">Draw polygons and assign a POS. Click a row in the list to select POS, then click points on the image.</div>
+    <div style="display:flex; gap:1rem; flex-wrap:wrap; margin-top:0.75rem;">
+        <div style="flex:2; min-width:280px;">
+            <div id="hotspot-canvas" style="position:relative; border:1px solid #1c2a3a; border-radius:6px; overflow:hidden;">
+                <img id="hotspot-image" src="{{ url_for('uploaded_file', filename=page.image_path) }}" alt="{{ page.title or 'Illustration' }}" style="max-width:100%; display:block;">
+                <svg id="hotspot-overlay" viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute; inset:0; width:100%; height:100%; pointer-events:none;"></svg>
+            </div>
+        </div>
+        <div style="flex:1; min-width:240px;">
+            <label class="field-label">Active POS</label>
+            <select id="hotspot-pos" class="status-select" style="width:100%;">
+                <option value="">Select POS</option>
+                {% for row in parts_rows %}
+                    <option value="{{ row.pos }}">{{ row.pos }} — {{ row.part_no or row.designation or '' }}</option>
+                {% endfor %}
+            </select>
+
+            <label class="field-label" style="margin-top:0.75rem;">Mode</label>
+            <select id="hotspot-mode" class="status-select" style="width:100%;">
+                <option value="polygon">Polygon</option>
+                <option value="rectangle">Rectangle (2 clicks)</option>
+            </select>
+
+            <div style="margin-top:0.75rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
+                <button type="button" class="button secondary small" id="hotspot-undo">Undo</button>
+                <button type="button" class="button secondary small" id="hotspot-clear">Clear</button>
+                <button type="button" class="button primary small" id="hotspot-finish">Finish</button>
+            </div>
+
+            <div style="margin-top:1rem;">
+                <button type="button" class="button primary" id="hotspot-save">Save Hotspots</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="card" style="margin-top:1rem;">
+        <h3>Existing Hotspots</h3>
+        <ul id="hotspot-list" style="list-style:none; padding-left:0; margin:0;">
+            {% for hs in hotspots_payload %}
+                <li data-pos="{{ hs.pos }}" style="margin-bottom:0.25rem;">POS {{ hs.pos }} ({{ hs.shape_json|length }} pts)</li>
+            {% else %}
+                <li class="text-muted">No hotspots saved yet.</li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+<div class="card" style="margin-top:1rem;">
+    <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+        <a class="button secondary" href="{{ url_for('templates_bp.template_wizard', template_id=template.id, step='3') }}">← Back</a>
+        <button type="button" class="button primary" id="hotspot-confirm">Confirm / Save</button>
+    </div>
+</div>
+
+<script nonce="{{ csp_nonce() }}">
+(() => {
+  const posSelect = document.getElementById('hotspot-pos');
+  const modeSelect = document.getElementById('hotspot-mode');
+  const overlay = document.getElementById('hotspot-overlay');
+  const image = document.getElementById('hotspot-image');
+  const saveBtn = document.getElementById('hotspot-save');
+  const confirmBtn = document.getElementById('hotspot-confirm');
+  const finishBtn = document.getElementById('hotspot-finish');
+  const undoBtn = document.getElementById('hotspot-undo');
+  const clearBtn = document.getElementById('hotspot-clear');
+  const listEl = document.getElementById('hotspot-list');
+
+  const hotspots = [];
+  let redirectAfterSave = false;
+  try {
+    const existing = {{ hotspots_payload|tojson }};
+    if (Array.isArray(existing)) {
+      existing.forEach((hs) => {
+        if (hs && hs.pos && hs.shape_json) {
+          hotspots.push({pos: hs.pos, shape_json: hs.shape_json});
+        }
+      });
+    }
+  } catch (e) {
+  }
+  let currentPoints = [];
+  let startRect = null;
+
+  function render() {
+    overlay.innerHTML = '';
+    hotspots.forEach((hs) => {
+      const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+      const points = hs.shape_json.map(pt => `${pt[0] * 100},${pt[1] * 100}`).join(' ');
+      poly.setAttribute('points', points);
+      poly.setAttribute('fill', '#2a4c6d');
+      poly.setAttribute('stroke', '#9bd1ff');
+      poly.setAttribute('stroke-width', '0.6');
+      overlay.appendChild(poly);
+    });
+    if (currentPoints.length > 0) {
+      const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+      const points = currentPoints.map(pt => `${pt[0] * 100},${pt[1] * 100}`).join(' ');
+      poly.setAttribute('points', points);
+      poly.setAttribute('fill', 'none');
+      poly.setAttribute('stroke', '#9bd1ff');
+      poly.setAttribute('stroke-width', '0.6');
+      overlay.appendChild(poly);
+    }
+  }
+
+  function updateList() {
+    if (!listEl) return;
+    listEl.innerHTML = '';
+    if (hotspots.length === 0) {
+      const li = document.createElement('li');
+      li.className = 'text-muted';
+      li.textContent = 'No hotspots saved yet.';
+      listEl.appendChild(li);
+      return;
+    }
+    hotspots.forEach((hs) => {
+      const li = document.createElement('li');
+      li.textContent = `POS ${hs.pos} (${hs.shape_json.length} pts)`;
+      listEl.appendChild(li);
+    });
+  }
+
+  function normalizePoint(e) {
+    const rect = image.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width;
+    const y = (e.clientY - rect.top) / rect.height;
+    return [Math.min(Math.max(x, 0), 1), Math.min(Math.max(y, 0), 1)];
+  }
+
+  function finishPolygon() {
+    const posVal = parseInt(posSelect.value || '0', 10);
+    if (!posVal || currentPoints.length < 3) {
+      return;
+    }
+    hotspots.push({pos: posVal, shape_json: currentPoints});
+    currentPoints = [];
+    startRect = null;
+    render();
+    updateList();
+  }
+
+  if (image) {
+    image.addEventListener('click', (e) => {
+      if (!posSelect.value) {
+        return;
+      }
+      const mode = modeSelect.value;
+      if (mode === 'rectangle') {
+        const pt = normalizePoint(e);
+        if (!startRect) {
+          startRect = pt;
+          currentPoints = [pt];
+          render();
+        } else {
+          const x1 = startRect[0];
+          const y1 = startRect[1];
+          const x2 = pt[0];
+          const y2 = pt[1];
+          const rectPoints = [
+            [x1, y1],
+            [x2, y1],
+            [x2, y2],
+            [x1, y2],
+          ];
+          currentPoints = rectPoints;
+          finishPolygon();
+        }
+      } else {
+        currentPoints.push(normalizePoint(e));
+        render();
+      }
+    });
+  }
+
+  // Initial render
+  render();
+  updateList();
+
+  finishBtn?.addEventListener('click', finishPolygon);
+  undoBtn?.addEventListener('click', () => {
+    currentPoints.pop();
+    render();
+  });
+  clearBtn?.addEventListener('click', () => {
+    currentPoints = [];
+    startRect = null;
+    render();
+  });
+
+  saveBtn?.addEventListener('click', () => {
+    fetch('{{ url_for('illustrations_bp.api_replace_hotspots', page_id=page.id) }}', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': '{{ csrf_token() }}'
+      },
+      body: JSON.stringify({hotspots})
+    }).then(resp => resp.json()).then(data => {
+      if (data.error) {
+        alert(data.error);
+        return;
+      }
+      alert('Hotspots saved.');
+      if (redirectAfterSave) {
+        window.location.href = "{{ url_for('templates_bp.template_wizard', template_id=template.id, step='3') }}";
+      }
+    });
+  });
+
+  confirmBtn?.addEventListener('click', () => {
+    redirectAfterSave = true;
+    saveBtn?.click();
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

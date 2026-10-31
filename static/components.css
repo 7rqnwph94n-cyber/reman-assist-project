@@ -1,0 +1,424 @@
+/* Sidebar */
+.sidebar {
+  background: var(--surface-1);
+  border-right: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  color: var(--muted);
+  border-left: 3px solid transparent;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.sidebar-item:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.sidebar-item.active {
+  color: var(--text);
+  background: rgba(0,191,255,0.10);
+  border-left-color: var(--accent);
+}
+
+/* Cards / Panels */
+.card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+  padding: var(--s-4);
+}
+
+.card-header {
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--r-md) var(--r-md) 0 0;
+  margin: calc(-1 * var(--s-4)) calc(-1 * var(--s-4)) var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  color: var(--text);
+  font-weight: 700;
+}
+
+.card-body { padding: 0; }
+
+/* KPI Cards */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--s-3);
+}
+
+.kpi-card {
+  background: linear-gradient(135deg, var(--surface-2), var(--surface-1));
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+  padding: var(--s-4);
+}
+
+.kpi-title {
+  color: var(--text);
+  font-weight: 600;
+  margin-bottom: var(--s-2);
+}
+
+.kpi-metric {
+  color: var(--warn);
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.kpi-icon {
+  color: var(--accent);
+  opacity: 0.9;
+}
+
+/* Tables (ink-on-glass) */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--text);
+}
+
+.table th {
+  background: var(--surface-2);
+  color: #dbe6f7;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  font-size: 0.82rem;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.table tbody tr { background: var(--surface-1); }
+.table tbody tr:nth-child(even) { background: var(--surface-2); }
+.table tbody tr:hover { background: var(--surface-3); }
+
+/* Badges / Pills */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 650;
+  color: var(--text);
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.06);
+}
+
+.badge-ok   { border-color: rgba(46,139,87,0.45);  background: rgba(46,139,87,0.18); }
+.badge-warn { border-color: rgba(255,215,0,0.45);  background: rgba(255,215,0,0.14); }
+.badge-bad  { border-color: rgba(220,20,60,0.45);  background: rgba(220,20,60,0.16); }
+.badge-info { border-color: rgba(70,130,180,0.45); background: rgba(70,130,180,0.16); }
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.08s ease, box-shadow 0.15s ease, background 0.15s;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #029bdc, var(--accent));
+  color: #0b172a;
+  box-shadow: 0 10px 24px rgba(0,191,255,0.35);
+  border-color: rgba(0,191,255,0.6);
+}
+
+.btn-primary:hover { transform: translateY(-1px); }
+
+.btn-secondary {
+  background: transparent;
+  color: var(--accent);
+  border-color: rgba(0,191,255,0.45);
+}
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  border-color: rgba(0,191,255,0.7);
+}
+
+/* Light theme button parity */
+body.theme-light .btn,
+body.theme-light button,
+body.theme-light .button,
+body.theme-light .actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.08s ease, box-shadow 0.15s ease, background 0.15s;
+}
+
+body.theme-light .btn-primary,
+body.theme-light button.primary,
+body.theme-light .actions .primary,
+body.theme-light .button.primary {
+  background: linear-gradient(135deg, #3182f6, var(--accent)) !important;
+  color: #ffffff !important;
+  border-color: rgba(37,99,235,0.6) !important;
+  box-shadow: 0 10px 24px rgba(37,99,235,0.18) !important;
+}
+
+body.theme-light .btn-secondary,
+body.theme-light button.secondary,
+body.theme-light .button.secondary {
+  background: transparent !important;
+  color: var(--accent) !important;
+  border-color: rgba(37,99,235,0.45) !important;
+}
+
+/* Inputs */
+input, select, textarea {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  padding: var(--s-2);
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  border-color: rgba(0,191,255,0.7);
+}
+
+/* Light theme overrides to neutralize dark defaults */
+body.theme-light,
+body.theme-light html {
+  background: var(--bg);
+  color: var(--text);
+}
+
+body.theme-light .top-bar,
+body.theme-light body > header,
+body.theme-light .navbar {
+  background: var(--surface-2);
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-1);
+}
+
+body.theme-light .nav a,
+body.theme-light .nav-toggle {
+  color: var(--muted);
+}
+
+body.theme-light .nav a:hover,
+body.theme-light .nav-toggle:hover {
+  background: var(--accent-soft);
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+/* Light theme: mirror portal structure/layout with light palette */
+body.theme-light .top-bar,
+body.theme-light body > header,
+body.theme-light .navbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1.5rem;
+  background: var(--surface-1);
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-1);
+}
+
+body.theme-light .brand,
+body.theme-light body > header .app-title,
+body.theme-light .navbar .app-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--text);
+}
+
+body.theme-light .card,
+body.theme-light .kpi-card,
+body.theme-light .job-card,
+body.theme-light .dashboard-section {
+  background: var(--surface-1);
+  border-color: var(--border);
+  box-shadow: var(--shadow-1);
+}
+
+body.theme-light .card-header,
+body.theme-light .dashboard-section-header {
+  background: var(--surface-2);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+body.theme-light .table tbody tr { background: var(--surface-1); }
+body.theme-light .table tbody tr:nth-child(even) { background: var(--surface-2); }
+body.theme-light .table tbody tr:hover { background: var(--surface-3); }
+
+body.theme-light .table th {
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+
+body.theme-light .badge { color: var(--text); }
+body.theme-light .btn-primary {
+  color: #ffffff;
+  background: linear-gradient(135deg, var(--accent), #3b82f6);
+  border-color: rgba(37,99,235,0.6);
+  box-shadow: 0 10px 24px rgba(37,99,235,0.25);
+}
+
+body.theme-light .btn-secondary {
+  color: var(--accent);
+  border-color: rgba(37,99,235,0.45);
+}
+
+/* Ensure light theme uses same structure/padding as dark for cards/sections */
+body.theme-light .card,
+body.theme-light .dashboard-section,
+body.theme-light .job-card,
+body.theme-light .kpi-card {
+  background: var(--surface-1) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--r-md) !important;
+  box-shadow: var(--shadow-1) !important;
+  padding: var(--s-4) !important;
+  margin-bottom: var(--s-4) !important;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+body.theme-light .card-header,
+body.theme-light .dashboard-section-header {
+  background: var(--surface-2) !important;
+  border-bottom: 1px solid var(--border) !important;
+  border-radius: var(--r-md) var(--r-md) 0 0 !important;
+  margin: calc(-1 * var(--s-4)) calc(-1 * var(--s-4)) var(--s-3) !important;
+  padding: var(--s-3) var(--s-4) !important;
+  color: var(--text) !important;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+body.theme-light .job-card-body,
+body.theme-light .dashboard-job-list .job-card-body {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: var(--s-4);
+}
+
+/* Override dark gradients on dashboard cards/thumbs in light mode */
+body.theme-light .dashboard-job-list .job-card,
+body.theme-light .job-card {
+  background: linear-gradient(135deg, #ffffff, #eaf0f8) !important;
+  border: 1px solid #d4deec !important;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12) !important;
+}
+
+body.theme-light .dashboard-job-list .job-thumb,
+body.theme-light .job-thumb,
+body.theme-light .job-thumb.job-thumb-tall {
+  background: linear-gradient(135deg, #edf3fb, #dfe8f6) !important;
+  border: 1px solid #d0daeb !important;
+  color: #0f172a !important;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.06) !important;
+}
+
+/* KPI cards in light mode mirror structure */
+body.theme-light .kpi-card {
+  background: linear-gradient(135deg, #ffffff, #ecf2fb) !important;
+  border: 1px solid #d4deec !important;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12) !important;
+}
+
+/* Alignment parity for light theme */
+body.theme-light .dashboard-job-list .job-card-main,
+body.theme-light .job-card-main {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-2);
+}
+
+body.theme-light .job-progress-row,
+body.theme-light .dashboard-job-list .job-progress-row {
+  display: flex;
+  justify-content: center;
+  margin-bottom: var(--s-2);
+}
+
+body.theme-light .job-progress {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+
+body.theme-light .job-progress-step {
+  padding: 0.2rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: rgba(0, 191, 255, 0.14);
+  color: #0f172a;
+}
+
+body.theme-light .job-progress-step.is-current {
+  background: rgba(0, 191, 255, 0.22);
+  border-color: rgba(0, 191, 255, 0.6);
+  color: #0b172a;
+}
+
+/* Ensure dashboard job list layouts match dark mode */
+body.theme-light .dashboard-job-list .job-card,
+body.theme-light .dashboard-job-list .job-card-body,
+body.theme-light .dashboard-job-list .job-card-main,
+body.theme-light .dashboard-job-list .job-card-thumb {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Match portal layout width/padding in light mode */
+body.theme-light main,
+body.theme-light .page-content,
+body.theme-light .content-wrapper {
+  max-width: 1320px;
+  margin: var(--s-5) auto var(--s-5);
+  padding: 0 var(--s-5);
+  box-sizing: border-box;
+}
+
+body.theme-light .container {
+  max-width: 1320px;
+  margin: var(--s-3) auto var(--s-5);
+  padding: 0 var(--s-5);
+  box-sizing: border-box;
+}

@@ -1,0 +1,569 @@
+<form method="post" {% if return_to_wizard %}action="{{ url_for('templates_bp.template_edit', template_id=template.id) }}"{% endif %}>
+    {% include "_csrf.html" %}
+    {% if return_to_wizard %}
+        <input type="hidden" name="return_to_wizard" value="1">
+        <input type="hidden" name="return_step" value="{{ return_step|default('4') }}">
+    {% endif %}
+    <div class="card" style="margin-bottom: 1.5rem; padding: 1rem;">
+        <div style="display:flex; gap:1.5rem; flex-wrap:wrap; align-items:flex-end;">
+            <div>
+                <label for="name" class="field-label">Template name</label><br>
+                <input
+                    id="name"
+                    name="name"
+                    type="text"
+                    value="{{ template.name }}"
+                    class="text-input"
+                    style="min-width: 260px;"
+                >
+            </div>
+            <div>
+                <label for="engine_type" class="field-label">Engine type</label><br>
+                <input
+                    id="engine_type"
+                    name="engine_type"
+                    type="text"
+                    value="{{ template.engine_type or '' }}"
+                    class="text-input"
+                    style="min-width: 220px;"
+                >
+            </div>
+            <div>
+                <label class="field-label" for="locked">Lock template</label><br>
+                <label class="flag-inline" style="cursor:pointer; user-select:none;">
+                    <input
+                        id="locked"
+                        name="locked"
+                        type="checkbox"
+                        {% if template.is_locked %}checked{% endif %}
+                    >
+                    <span>
+                        {% if template.is_locked %}
+                            Locked
+                        {% else %}
+                            Editable
+                        {% endif %}
+                    </span>
+                </label>
+            </div>
+        </div>
+    </div>
+
+    {% set disabled_attr = 'disabled' if template.is_locked else '' %}
+
+    <div class="card" style="margin-bottom: 1.5rem; padding: 1rem;">
+        <h2 style="margin-top: 0; margin-bottom: 0.5rem;">Kits (for {{ t('parts_list') }} logic)</h2>
+        <p style="margin-top: 0; margin-bottom: 0.75rem; font-size: 0.85rem; color: var(--text-soft);">
+            Name your kits here. The <strong>Kit</strong> dropdown on each line
+            will assign that part into one of these kits.
+        </p>
+
+        {% if template_groups %}
+            <ul style="list-style:none; padding-left:0; margin:0 0 0.75rem 0; display:flex; flex-wrap:wrap; gap:0.4rem;">
+                {% for g in template_groups %}
+                    <li style="
+                        padding: 0.15rem 0.7rem;
+                        border-radius: 999px;
+                        background: rgba(15,23,42,0.9);
+                        border: 1px solid var(--border-subtle);
+                        font-size: 0.8rem;
+                        color: var(--text-soft);
+                    ">
+                        {{ g.label }}
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p style="margin:0 0 0.75rem 0; font-size:0.85rem; color:var(--text-muted);">
+                No kits defined yet. You can still edit the template – the Kit dropdown
+                will show options once kits are created for this template.
+            </p>
+        {% endif %}
+
+        <div style="display:flex; gap:0.75rem; align-items:flex-end; max-width:420px;">
+            <div style="flex:1;">
+                <label for="new_group_label" class="field-label">Add kit name</label><br>
+                <input
+                    id="new_group_label"
+                    name="new_group_label"
+                    type="text"
+                    class="text-input"
+                    placeholder="e.g. Bottom end kit"
+                    style="min-width: 260px; max-width: 360px;"
+                    {{ disabled_attr }}
+                >
+            </div>
+            <div>
+                <span class="hint">
+                    Save template to add this kit.
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <div class="card" style="margin-bottom: 1.5rem; padding: 1rem; text-align:center;">
+        <label for="template-search" class="field-label">Search parts in this template</label><br>
+        <input
+            id="template-search"
+            type="text"
+            class="text-input"
+            placeholder="Search by part number, name, or section…"
+            style="max-width: 420px;"
+        >
+    </div>
+
+    {% set cfg_id = request.args.get('config_id')|int if request.args.get('config_id') else None %}
+    <div class="template-bubble" data-config-id="{{ cfg_id or '' }}">
+        <div class="template-scroll">
+        <table class="strip-survey-table">
+            <thead>
+                <tr>
+                    <th style="width:70px;">Section</th>
+                    <th style="width:60px;">Pos</th>
+                    <th style="width:110px;">Part No</th>
+                    <th style="min-width:220px;">Name</th>
+                    <th style="width:60px; text-align:center;">Qty</th>
+                    <th style="width:55px; text-align:center;">100%</th>
+                    <th style="width:65px; text-align:center;">Big<br>Tkt</th>
+                    <th style="width:65px; text-align:center;">Test?</th>
+                    <th style="width:65px; text-align:center;">Meas?</th>
+                    <th style="width:300px;">Kit name</th>
+                    <th style="width:140px;">Rules</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% set ns = namespace(current_section = None) %}
+
+                {% for item in items %}
+                    {% if item.section != ns.current_section %}
+                        {% set ns.current_section = item.section %}
+                        {% set section_label = (item.section or 'General')|trim %}
+                        {% set section_id = section_id_map.get(section_label) %}
+                        {% set section_code = section_label|replace(' ', '')|replace('-', '')|replace('/', '')|upper %}
+                        {% set name_parts = section_label.split(" ") %}
+                        {% set section_code_short = (name_parts[0] ~ name_parts[1]) if name_parts|length >= 2 else section_label %}
+                        {% set img_url = (
+                            illustrations_by_section.get(section_label)
+                            or section_images.get(section_label)
+                            or section_images.get(section_code_short)
+                            or section_images.get(section_code)
+                            or section_images.get(section_label|upper)
+                        ) %}
+                        <tr class="section-header"
+                            data-section-key="{{ section_label|e }}">
+                            <td colspan="11">
+                                <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem;">
+                                    <span>{{ section_label }}</span>
+                                    {# Exploded View Wizard button removed per request #}
+                                </div>
+                            </td>
+                        </tr>
+                        {% if img_url %}
+                            <tr class="section-image-row" data-section-key="{{ section_label|e }}">
+                                <td colspan="11">
+                                    <div class="section-diagram" style="margin:0; text-align:center;">
+                                        <img src="{{ img_url }}" alt="{{ section_label }} diagram" style="max-width:100%; border-radius:8px; display:block; margin:0 auto;">
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endif %}
+                    {% endif %}
+
+                    <tr class="template-row{% if cfg_id and item.id == cfg_id %} row-highlight{% endif %}"
+                        data-section-key="{{ (item.section or 'General')|e }}">
+                        <td>
+                            <input
+                                type="text"
+                                name="section_{{ item.id }}"
+                                value="{{ item.section or '' }}"
+                                class="text-input"
+                                {{ disabled_attr }}
+                            >
+                        </td>
+                        <td>
+                            <input
+                                type="number"
+                                name="pos_{{ item.id }}"
+                                value="{{ item.pos or '' }}"
+                                class="text-input"
+                                style="width: 60px;"
+                                {{ disabled_attr }}
+                            >
+                        </td>
+                        <td>
+                            <input
+                                type="text"
+                                name="part_no_{{ item.id }}"
+                                value="{{ item.part_no or '' }}"
+                                class="text-input"
+                                style="width: 130px;"
+                                {{ disabled_attr }}
+                            >
+                        </td>
+                        <td>
+                            <input
+                                type="text"
+                                name="name_{{ item.id }}"
+                                value="{{ item.name or '' }}"
+                                class="text-input"
+                                style="width:100%;"
+                                {{ disabled_attr }}
+                            >
+                        </td>
+                        <td>
+                            <input
+                                type="number"
+                                name="qty_{{ item.id }}"
+                                value="{{ item.qty or 1 }}"
+                                class="text-input"
+                                style="width: 60px; max-width:60px;"
+                                {{ disabled_attr }}
+                            >
+                        </td>
+                        <td style="text-align:center;">
+                            <input
+                                type="checkbox"
+                                name="always_replace_{{ item.id }}"
+                                {% if item.always_replace %}checked{% endif %}
+                                {{ disabled_attr }}
+                            >
+                        </td>
+                        <td style="text-align:center;">
+                            <input
+                                type="checkbox"
+                                name="big_ticket_{{ item.id }}"
+                                {% if item.big_ticket %}checked{% endif %}
+                                {{ disabled_attr }}
+                            >
+                        </td>
+                        <td style="text-align:center;">
+                            <input
+                                type="checkbox"
+                                name="requires_test_{{ item.id }}"
+                                {% if item.requires_test %}checked{% endif %}
+                                {{ disabled_attr }}
+                            >
+                        </td>
+                        <td style="text-align:center;">
+                            <input
+                                type="checkbox"
+                                name="requires_measurement_{{ item.id }}"
+                                {% if item.requires_measurement %}checked{% endif %}
+                                {{ disabled_attr }}
+                            >
+                        </td>
+                        <td class="status-cell">
+                            <select
+                                name="group_{{ item.id }}"
+                                class="status-select"
+                                style="width: 100%; max-width: 300px;"
+                                {{ disabled_attr }}
+                            >
+                                <option value="">—</option>
+                                {% for g in template_groups %}
+                                    <option
+                                        value="{{ g.id }}"
+                                        {% if g in item.groups %}selected{% endif %}
+                                    >
+                                        {{ g.label }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </td>
+                        <td style="text-align:center;">
+                            {% if return_to_wizard %}
+                                <a class="button secondary" href="{{ url_for('templates_bp.template_wizard', template_id=template.id, step=return_step|default('4'), config_id=item.id) }}">Configure</a>
+                            {% else %}
+                                <a class="button secondary" href="{{ url_for('templates_bp.template_edit', template_id=template.id, config_id=item.id) }}">Configure</a>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+
+                <tr class="template-row">
+                    <td>
+                        <input
+                            type="text"
+                            name="new_section"
+                            class="text-input"
+                            placeholder="Section"
+                            {{ disabled_attr }}
+                        >
+                    </td>
+                    <td>
+                        <input
+                            type="number"
+                            name="new_pos"
+                            class="text-input"
+                            style="width: 60px;"
+                            placeholder="#"
+                            {{ disabled_attr }}
+                        >
+                    </td>
+                    <td>
+                        <input
+                            type="text"
+                            name="new_part_no"
+                            class="text-input"
+                            style="width: 130px;"
+                            placeholder="Part no"
+                            {{ disabled_attr }}
+                        >
+                    </td>
+                    <td>
+                        <input
+                            type="text"
+                            name="new_name"
+                            class="text-input"
+                            placeholder="Description"
+                            style="width:100%;"
+                            {{ disabled_attr }}
+                        >
+                    </td>
+                    <td>
+                        <input
+                            type="number"
+                            name="new_qty"
+                            class="text-input"
+                            style="width: 60px;"
+                            placeholder="1"
+                            {{ disabled_attr }}
+                        >
+                    </td>
+                    <td style="text-align:center;">
+                        <input
+                            type="checkbox"
+                            name="new_always_replace"
+                            {{ disabled_attr }}
+                        >
+                    </td>
+                    <td style="text-align:center;">
+                        <input
+                            type="checkbox"
+                            name="new_in_kit"
+                            {{ disabled_attr }}
+                        >
+                    </td>
+                    <td style="text-align:center;">
+                        <input
+                            type="checkbox"
+                            name="new_big_ticket"
+                            {{ disabled_attr }}
+                        >
+                    </td>
+                    <td style="text-align:center;">
+                        <input
+                            type="checkbox"
+                            name="new_requires_test"
+                            {{ disabled_attr }}
+                        >
+                    </td>
+                    <td class="status-cell">
+                        <select
+                            name="new_group"
+                            class="status-select"
+                            style="width: 100%; max-width: 300px;"
+                            {{ disabled_attr }}
+                        >
+                            <option value="">—</option>
+                            {% for g in template_groups %}
+                                <option value="{{ g.id }}">{{ g.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </td>
+                    <td style="text-align:center;">
+                        <input
+                            type="checkbox"
+                            name="new_requires_measurement"
+                            {{ disabled_attr }}
+                        >
+                    </td>
+                    <td style="text-align:center;"></td>
+                </tr>
+            </tbody>
+        </table>
+        </div>
+    </div>
+
+    {% if cfg_id %}
+        {% set cfg_item = items|selectattr('id','equalto',cfg_id)|first %}
+        {% if cfg_item %}
+        <div class="card" style="margin-top:1rem; padding:1rem;">
+            <h2 style="margin-top:0;">Configure rules for {{ cfg_item.part_no or cfg_item.name }}</h2>
+            <input type="hidden" name="config_id" value="{{ cfg_item.id }}">
+            <div style="display:flex; gap:1rem; flex-wrap:wrap;">
+                <div style="flex:1; min-width:260px;">
+                    <label class="field-label">Supersedes (drop these if this part is ordered)</label>
+                    <textarea name="supersedes_{{ cfg_item.id }}" class="text-input" rows="3" placeholder="Comma-separated part numbers">{{ cfg_item.supersedes or '' }}</textarea>
+                </div>
+                <div style="flex:1; min-width:260px;">
+                    <label class="field-label">Bundles with (auto-add these when this part is ordered)</label>
+                    <textarea name="bundles_{{ cfg_item.id }}" class="text-input" rows="3" placeholder="Comma-separated part numbers">{{ cfg_item.bundles or '' }}</textarea>
+                </div>
+            </div>
+            <p class="text-muted" style="margin-top:0.5rem;">Supersedes: removes those parts from the {{ t('parts_list') }} when this line is replace/always_replace. Bundles: ensures those parts are included.</p>
+        </div>
+        {% endif %}
+    {% endif %}
+
+    {% set measured_items = items | selectattr('requires_measurement') | list %}
+    {% if measured_items %}
+        <div class="card" style="margin-top: 1.5rem; padding: 1rem;">
+            <h2 style="margin-top: 0;">Measurement specs</h2>
+            <p style="margin-bottom: 0.75rem;">
+                Configure measurements for any parts you’ve ticked as <strong>Meas?</strong> above.
+                To add other measurements, tick <strong>Meas?</strong> on more rows and click
+                <em>Save template</em> – they’ll appear here.
+            </p>
+
+            <table class="strip-survey-table">
+                <thead>
+                    <tr>
+                        <th style="width:60px;">ID</th>
+                        <th>Section</th>
+                        <th>Part</th>
+                        <th>Description</th>
+                        <th>Label</th>
+                        <th style="width:80px;">Unit</th>
+                        <th style="width:80px;">Min</th>
+                        <th style="width:80px;">Max</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in measured_items %}
+                        <tr>
+                            <td class="id-cell">{{ item.id }}</td>
+                            <td class="section-cell">{{ item.section or "—" }}</td>
+                            <td class="partno-cell">{{ item.part_no or "—" }}</td>
+                            <td class="name-cell">{{ item.name or "—" }}</td>
+
+                            <td>
+                                <input
+                                    type="text"
+                                    name="measurement_label_{{ item.id }}"
+                                    value="{{ item.measurement_label or '' }}"
+                                    class="text-input"
+                                    {{ disabled_attr }}
+                                >
+                            </td>
+
+                            <td>
+                                <input
+                                    type="text"
+                                    name="measurement_unit_{{ item.id }}"
+                                    value="{{ item.measurement_unit or '' }}"
+                                    class="text-input"
+                                    placeholder="{{ unit_hint('length') }}"
+                                    style="width: 80px;"
+                                    {{ disabled_attr }}
+                                >
+                            </td>
+
+                            <td>
+                                <input
+                                    type="text"
+                                    name="measurement_min_{{ item.id }}"
+                                    value="{{ item.measurement_min if item.measurement_min is not none else '' }}"
+                                    class="text-input"
+                                    style="width: 80px;"
+                                    {{ disabled_attr }}
+                                >
+                            </td>
+
+                            <td>
+                                <input
+                                    type="text"
+                                    name="measurement_max_{{ item.id }}"
+                                    value="{{ item.measurement_max if item.measurement_max is not none else '' }}"
+                                    class="text-input"
+                                    style="width: 80px;"
+                                    {{ disabled_attr }}
+                                >
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+
+    <div style="margin-top: 1.5rem; display:flex; gap:0.75rem; flex-wrap:wrap;">
+        <button type="submit" name="action" value="save" class="button primary">
+            Save template
+        </button>
+        <button type="submit" name="action" value="add_row" class="button">
+            Save &amp; add row
+        </button>
+    </div>
+</form>
+
+<script nonce="{{ csp_nonce() }}">
+(() => {
+    const init = () => {
+        const headers = document.querySelectorAll("tr.section-header");
+        const wrapper = document.querySelector(".template-bubble");
+        const configId = wrapper ? wrapper.getAttribute("data-config-id") : "";
+
+        headers.forEach(header => {
+            header.style.cursor = "pointer";
+        });
+        document.addEventListener("click", (event) => {
+            const header = event.target.closest("tr.section-header");
+            if (!header) return;
+            const key = header.getAttribute("data-section-key");
+            const isCollapsed = header.classList.toggle("collapsed");
+            document.querySelectorAll(
+                'tr.template-row[data-section-key="' + key + '"], tr.section-image-row[data-section-key="' + key + '"]'
+            ).forEach(row => {
+                row.style.display = isCollapsed ? "none" : "";
+            });
+        });
+        headers.forEach(header => {
+            const key = header.getAttribute("data-section-key");
+            const rows = document.querySelectorAll(
+                'tr.template-row[data-section-key="' + key + '"], tr.section-image-row[data-section-key="' + key + '"]'
+            );
+            let keepOpen = false;
+            if (configId) {
+                rows.forEach(row => {
+                    if (row.classList.contains("row-highlight")) {
+                        keepOpen = true;
+                    }
+                });
+            }
+            if (!keepOpen) {
+                header.classList.add("collapsed");
+                rows.forEach(row => {
+                    row.style.display = "none";
+                });
+            }
+        });
+
+        if (configId) {
+            const target = document.querySelector(".template-row.row-highlight");
+            if (target) {
+                target.scrollIntoView({ behavior: "smooth", block: "center" });
+            }
+        }
+
+        const searchInput = document.getElementById("template-search");
+        if (searchInput) {
+            const rows = Array.from(document.querySelectorAll(".template-bubble tbody tr.template-row"));
+            searchInput.addEventListener("input", () => {
+                const q = searchInput.value.trim().toLowerCase();
+                rows.forEach(row => {
+                    const cells = row.querySelectorAll("input[type='text']");
+                    const text = Array.from(cells).map(c => (c.value || "").toLowerCase()).join(" ");
+                    row.style.display = (!q || text.includes(q)) ? "" : "none";
+                });
+            });
+        }
+    };
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", init);
+    } else {
+        init();
+    }
+})();
+</script>

@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Create job</h1>
+    <div class="actions">
+        <a class="button secondary" href="{{ url_for('jobs.jobs_list') }}">
+            ← Back to jobs
+        </a>
+    </div>
+</div>
+
+<div class="card form-card">
+    <form method="post" {{ testid("create-job-form")|safe }}>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="form-row">
+            <label for="job_number" class="field-label">Job number</label>
+            <input
+                id="job_number"
+                name="job_number"
+                type="text"
+                class="text-input"
+                required
+                {{ testid("job-number")|safe }}
+            >
+        </div>
+
+        {# ✅ match app.py: customer_name #}
+        <div class="form-row">
+            <label for="customer_name" class="field-label">Customer</label>
+            <input
+                id="customer_name"
+                name="customer_name"
+                type="text"
+                class="text-input"
+                {{ testid("customer-name")|safe }}
+            >
+        </div>
+
+        <div class="form-row">
+            <label for="engine_type" class="field-label">Engine type</label>
+            <input
+                id="engine_type"
+                name="engine_type"
+                type="text"
+                class="text-input"
+                {{ testid("engine-type")|safe }}
+            >
+        </div>
+
+        <div class="form-row">
+            <label for="serial_number" class="field-label">Serial number</label>
+            <input
+                id="serial_number"
+                name="serial_number"
+                type="text"
+                class="text-input"
+                {{ testid("serial-number")|safe }}
+            >
+            <p class="hint">
+                Physical serial number of the unit on the bench.
+            </p>
+        </div>
+
+        <div class="form-row">
+            <label for="template_id" class="field-label">Template</label>
+            <select
+                id="template_id"
+                name="template_id"
+                class="text-input"
+                required
+                {{ testid("template-select")|safe }}
+            >
+                <option value="" disabled selected>Select a template…</option>
+                {% for t in templates %}
+                    <option value="{{ t.id }}">
+                        {{ t.name }}{% if t.engine_type %} – {{ t.engine_type }}{% endif %}
+                    </option>
+                {% endfor %}
+            </select>
+            <p class="hint">
+                Controls the {{ t('strip_inspection_lower') }} layout and {{ t('parts_list') }} logic for this job.
+            </p>
+        </div>
+
+        {# ✅ match app.py: assigned_to_id #}
+        <div class="form-row">
+            <label for="assigned_to_id" class="field-label">Assigned technician</label>
+            <select
+                id="assigned_to_id"
+                name="assigned_to_id"
+                class="text-input"
+                {{ testid("assigned-technician")|safe }}
+            >
+                <option value="">Unassigned</option>
+                {% for user in technicians %}
+                    <option value="{{ user.id }}">
+                        {{ user.username }} ({{ user.role.value }})
+                    </option>
+                {% endfor %}
+            </select>
+            <p class="hint">
+                You can leave this as <strong>Unassigned</strong> and assign it later.
+            </p>
+        </div>
+
+        <div class="form-actions" style="margin-top: 1.5rem;">
+            <button type="submit" class="button primary" {{ testid("create-job-submit")|safe }}>
+                Create job
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}

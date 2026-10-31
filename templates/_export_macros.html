@@ -1,0 +1,15 @@
+{% macro export_button(job_id, style="primary", disabled=false, tooltip="") %}
+{% set is_secondary = style == "secondary" %}
+{% set classes = "button secondary" if is_secondary else "button primary" %}
+{% if disabled %}
+    <button class="{{ classes }}" disabled {% if tooltip %}title="{{ tooltip }}"{% endif %}>
+        <span aria-hidden="true" style="margin-right: 0.35rem;">⬇</span>
+        Export Demand List (CSV)
+    </button>
+{% else %}
+    <a class="{{ classes }}" href="{{ url_for('parts.job_parts_export', job_id=job_id) }}">
+        <span aria-hidden="true" style="margin-right: 0.35rem;">⬇</span>
+        Export Demand List (CSV)
+    </a>
+{% endif %}
+{% endmacro %}

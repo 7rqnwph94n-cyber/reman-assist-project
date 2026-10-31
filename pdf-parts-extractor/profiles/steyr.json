@@ -1,0 +1,41 @@
+{
+  "name": "Steyr",
+  "description": "Steyr Motors parts catalog format",
+  "version": "1.0",
+  "detection": {
+    "keywords": ["STEYR", "TA 0", "CYLINDERBLOCK", "GROUPPART"],
+    "patterns": [
+      "TA\\s*\\d{4}\\s*[A-Z]+",
+      "TA\\s*\\d{4}"
+    ]
+  },
+  "section_detection": {
+    "type": "header_text",
+    "patterns": [
+      "^TA\\s*\\d{4}\\s+.+$"
+    ],
+    "min_font_size": 10
+  },
+  "table_structure": {
+    "columns": [
+      {"name": "pos", "aliases": ["Pos", "Position", "Item"]},
+      {"name": "part_no", "aliases": ["Part-No", "Part Number", "Teilenummer"]},
+      {"name": "qty", "aliases": ["Qty", "Quantity", "Menge"]},
+      {"name": "name", "aliases": ["Designation", "Description", "Bezeichnung"]},
+      {"name": "step", "aliases": ["Step", "Stufe"]}
+    ],
+    "header_detection": "first_bold_row",
+    "special_markers": {
+      "grouppart": "○",
+      "assembly": "circle"
+    }
+  },
+  "image_extraction": {
+    "mode": "section_header",
+    "position": "above_table",
+    "min_width": 150,
+    "min_height": 150,
+    "file_pattern": "{section}_diagram_p{page}.png",
+    "notes": "Primary diagram per section, used by template wizard"
+  }
+}

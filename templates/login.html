@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card narrow">
+    <h2>Login</h2>
+    <form method="post" {{ testid("login-form")|safe }}>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label>Username
+            <input type="text" name="username" autofocus required {{ testid("login-username")|safe }}>
+        </label>
+        <label>Password
+            <input type="password" name="password" required {{ testid("login-password")|safe }}>
+        </label>
+        <button type="submit" {{ testid("login-submit")|safe }}>Login</button>
+        <p class="hint">Default admin is <strong>admin / admin</strong> on first run.</p>
+    </form>
+</div>
+{% endblock %}
