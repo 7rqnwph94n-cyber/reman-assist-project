@@ -26,7 +26,7 @@ FLASK_CONFIG=testing APP_ENV=test RUN_STRESS_TESTS=0 PILOT_REQUIRE_PDF=0 python 
 ```
 
 `pytest.ini` selects the complete `tests/` suite, excluding `e2e/`. The expected
-review baseline is **156 passed, 9 skipped**, including 69 socket-free PostgreSQL
+review baseline is **169 passed, 9 skipped**, including 69 socket-free PostgreSQL
 configuration/guard unit cases. The nine intentional skips are seven
 stress/integration tests gated by `RUN_STRESS_TESTS=1` and two pilot PDF tests
 gated by `PILOT_REQUIRE_PDF=1`; PDF import additionally requires a sample file.
@@ -194,7 +194,7 @@ Use another newly created service/database/receipt for another full gate run.
 
 **Execution status:** PostgreSQL migrations, schema checks, repeated upgrade and
 integration tests have **NOT EXECUTED** in the socket-restricted Work environment.
-They remain unverified until this workflow actually runs. Default-suite tests in
+They remain unverified until this workflow completes them successfully. Default-suite tests in
 `tests/test_postgres_safety.py` validate rejection and configuration using pure
 inputs and fake drivers; those results are not PostgreSQL integration results.
 Neither local SQLite success nor YAML parsing is evidence of a PostgreSQL pass.
@@ -207,5 +207,14 @@ revision `ca2e176c395f` declares the Boolean `is_resolved` column with
 native enum creation/alteration branches also require PostgreSQL execution;
 PostgreSQL 16 does not permit using a newly added enum value until its transaction
 commits. PostgreSQL constraint reflection and schema/model compatibility cannot
-be established from the SQLite suite. Existing migration history is unchanged;
-this gate must fail on such discrepancies rather than work around them.
+be established from the SQLite suite. Apart from the narrowly scoped FK repair
+below, historical migrations remain unchanged. The gate must fail on remaining
+discrepancies.
+
+
+The first real PostgreSQL failure and its focused repair are documented in
+[the FK migration audit](docs/POSTGRES_FK_MIGRATION_REPAIR.md). The new migration
+head is `d2e3f4a5b6c7`. Thirteen additional migration regressions cover the missing
+report table, all FK operations and existing-schema/audit-data compatibility.
+Automatic downgrade of this additive audit-table repair is refused to protect
+existing revision history. Live PostgreSQL verification of the repair is pending.

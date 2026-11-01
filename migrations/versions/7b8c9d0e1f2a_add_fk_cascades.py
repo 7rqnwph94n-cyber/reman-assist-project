@@ -21,6 +21,18 @@ def _with_fk(batch_op, name: str, source_cols, target_table: str, target_cols, o
     batch_op.create_foreign_key(name, target_table, source_cols, target_cols, ondelete=ondelete)
 
 
+def _costing_upload_fk_name(bind):
+    # 4d5e6f7a8b9c named this FK explicitly; model-created databases used the
+    # PostgreSQL default name. Preserve whichever matching constraint exists.
+    matches = [fk["name"] for fk in sa.inspect(bind).get_foreign_keys("costing_sheets")
+               if fk["constrained_columns"] == ["job_costing_upload_id"]
+               and fk["referred_table"] == "job_costing_uploads"
+               and fk["referred_columns"] == ["id"]]
+    if len(matches) != 1 or not matches[0]:
+        raise RuntimeError("Expected exactly one named costing_sheets job_costing_upload_id foreign key")
+    return matches[0]
+
+
 def upgrade():
     bind = op.get_bind()
     if bind.dialect.name == "sqlite":
@@ -58,8 +70,11 @@ def upgrade():
     with op.batch_alter_table("audit_logs", schema=None) as batch_op:
         _with_fk(batch_op, "audit_logs_job_id_fkey", ["job_id"], "jobs", ["id"], ondelete="CASCADE")
 
-    with op.batch_alter_table("job_report_revisions", schema=None) as batch_op:
-        _with_fk(batch_op, "job_report_revisions_job_id_fkey", ["job_id"], "jobs", ["id"], ondelete="CASCADE")
+    # No predecessor creates this table. Legacy/model-created databases may
+    # already have it; fresh databases receive it in d2e3f4a5b6c7 with CASCADE.
+    if sa.inspect(bind).has_table("job_report_revisions"):
+        with op.batch_alter_table("job_report_revisions", schema=None) as batch_op:
+            _with_fk(batch_op, "job_report_revisions_job_id_fkey", ["job_id"], "jobs", ["id"], ondelete="CASCADE")
 
     with op.batch_alter_table("job_logs", schema=None) as batch_op:
         _with_fk(batch_op, "job_logs_job_id_fkey", ["job_id"], "jobs", ["id"], ondelete="CASCADE")
@@ -81,7 +96,7 @@ def upgrade():
 
     with op.batch_alter_table("costing_sheets", schema=None) as batch_op:
         _with_fk(batch_op, "costing_sheets_job_id_fkey", ["job_id"], "jobs", ["id"], ondelete="CASCADE")
-        _with_fk(batch_op, "costing_sheets_job_costing_upload_id_fkey", ["job_costing_upload_id"], "job_costing_uploads", ["id"], ondelete="SET NULL")
+        _with_fk(batch_op, _costing_upload_fk_name(bind), ["job_costing_upload_id"], "job_costing_uploads", ["id"], ondelete="SET NULL")
         _with_fk(batch_op, "costing_sheets_costing_template_profile_id_fkey", ["costing_template_profile_id"], "costing_template_profiles", ["id"], ondelete="SET NULL")
 
     with op.batch_alter_table("costing_lines", schema=None) as batch_op:
@@ -100,7 +115,7 @@ def downgrade():
 
     with op.batch_alter_table("costing_sheets", schema=None) as batch_op:
         _with_fk(batch_op, "costing_sheets_job_id_fkey", ["job_id"], "jobs", ["id"], ondelete=None)
-        _with_fk(batch_op, "costing_sheets_job_costing_upload_id_fkey", ["job_costing_upload_id"], "job_costing_uploads", ["id"], ondelete=None)
+        _with_fk(batch_op, _costing_upload_fk_name(bind), ["job_costing_upload_id"], "job_costing_uploads", ["id"], ondelete=None)
         _with_fk(batch_op, "costing_sheets_costing_template_profile_id_fkey", ["costing_template_profile_id"], "costing_template_profiles", ["id"], ondelete=None)
 
     with op.batch_alter_table("costing_template_lines", schema=None) as batch_op:
@@ -121,8 +136,9 @@ def downgrade():
     with op.batch_alter_table("job_logs", schema=None) as batch_op:
         _with_fk(batch_op, "job_logs_job_id_fkey", ["job_id"], "jobs", ["id"], ondelete=None)
 
-    with op.batch_alter_table("job_report_revisions", schema=None) as batch_op:
-        _with_fk(batch_op, "job_report_revisions_job_id_fkey", ["job_id"], "jobs", ["id"], ondelete=None)
+    if sa.inspect(bind).has_table("job_report_revisions"):
+        with op.batch_alter_table("job_report_revisions", schema=None) as batch_op:
+            _with_fk(batch_op, "job_report_revisions_job_id_fkey", ["job_id"], "jobs", ["id"], ondelete=None)
 
     with op.batch_alter_table("audit_logs", schema=None) as batch_op:
         _with_fk(batch_op, "audit_logs_job_id_fkey", ["job_id"], "jobs", ["id"], ondelete=None)
