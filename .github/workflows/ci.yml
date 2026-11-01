@@ -35,3 +35,58 @@ jobs:
       - name: Complete default pytest suite (guarded disposable databases)
         run: |
           python -m pytest -ra
+
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: reman_pg_test
+          POSTGRES_PASSWORD: reman-postgres-ci-only
+          POSTGRES_DB: reman_pg_test_${{ github.run_id }}_${{ github.run_attempt }}
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U reman_pg_test -d reman_pg_test_${{ github.run_id }}_${{ github.run_attempt }}"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      REMAN_RUN_POSTGRES_TESTS: '1'
+      REMAN_PG_TEST_ID: ${{ github.run_id }}_${{ github.run_attempt }}
+      REMAN_PG_TEST_HOST: '127.0.0.1'
+      REMAN_PG_TEST_DATABASE: reman_pg_test_${{ github.run_id }}_${{ github.run_attempt }}
+      REMAN_PG_TEST_USER: reman_pg_test
+      REMAN_PG_TEST_PASSWORD: reman-postgres-ci-only
+      FLASK_CONFIG: testing
+      FLASK_ENV: development
+      APP_ENV: test
+      PYTHON_DOTENV_DISABLED: '1'
+      ENABLE_QUICKBOOKS: '0'
+      REDIS_URL: ''
+      RUN_STRESS_TESTS: '0'
+      PILOT_REQUIRE_PDF: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Designate this service port and a new migration receipt
+        env:
+          TEST_SERVICE_PORT: ${{ job.services.postgres.ports[5432] }}
+        run: |
+          echo "REMAN_PG_TEST_PORT=$TEST_SERVICE_PORT" >> "$GITHUB_ENV"
+          echo "REMAN_PG_TEST_RECEIPT=$RUNNER_TEMP/reman-pg-${{ github.run_id }}-${{ github.run_attempt }}.json" >> "$GITHUB_ENV"
+      - name: Install the unchanged application and test dependencies
+        run: |
+          python -m pip install -r requirements.txt -r requirements-test.txt
+          python -m pip check
+      - name: Validate graph and fresh PostgreSQL migrations, schema and repeat upgrade
+        run: |
+          python scripts/migration_check.py --heads-only
+          python scripts/ci_postgres.py --receipt "$REMAN_PG_TEST_RECEIPT"
+      - name: Mandatory PostgreSQL integration regressions
+        run: |
+          python -m pytest -ra postgres_tests

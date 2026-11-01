@@ -55,6 +55,10 @@ def install_connection_guards():
             connection_checks.append(("sqlite", str(args[0])))
 
     def guard_connection(dialect, connection_record, cargs, cparams):
+        if dialect.name == "postgresql":
+            from tests.postgres_support import require_postgres_connection
+            require_postgres_connection(cargs, cparams)
+            return
         if dialect.name != "sqlite":
             raise RuntimeError("Database safety guard permits only disposable SQLite")
         target = cargs[0] if cargs else cparams.get("database")

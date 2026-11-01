@@ -26,7 +26,8 @@ FLASK_CONFIG=testing APP_ENV=test RUN_STRESS_TESTS=0 PILOT_REQUIRE_PDF=0 python 
 ```
 
 `pytest.ini` selects the complete `tests/` suite, excluding `e2e/`. The expected
-review baseline is **87 passed, 9 skipped**. The nine intentional skips are seven
+review baseline is **156 passed, 9 skipped**, including 69 socket-free PostgreSQL
+configuration/guard unit cases. The nine intentional skips are seven
 stress/integration tests gated by `RUN_STRESS_TESTS=1` and two pilot PDF tests
 gated by `PILOT_REQUIRE_PDF=1`; PDF import additionally requires a sample file.
 These opt-ins remain disabled in CI. Other PDF/report smoke tests still run.
@@ -78,7 +79,8 @@ revision check for support scripts. CI does not use that runtime database path.
 upgrade/alignment check, and the complete default pytest suite. Genuine errors
 fail the job; no step masks a failure. No application database is migrated.
 SQLite paths come from Python temporary directories, on both macOS and Ubuntu.
-This gate validates SQLite migrations; it does not validate PostgreSQL migrations.
+The existing `test` job validates SQLite migrations. The separate PostgreSQL job
+below validates PostgreSQL migrations and application integration.
 
 YAML parsing and local commands can be verified locally. A local pass does not
 mean GitHub Actions or a clean Ubuntu dependency installation has run successfully.
@@ -100,3 +102,110 @@ environment, appropriate data and any additional dependencies. Never point them
 at user or production databases. Load dependencies are in `requirements-load.txt`.
 The Makefile's existing `.venv` shortcuts remain available, but use the explicit
 Python 3.12 setup above for reproducibility.
+
+
+## Dedicated PostgreSQL 16 gate
+
+The `postgres` GitHub Actions job uses a new `postgres:16` service on each run,
+with a database named `reman_pg_test_<run_id>_<attempt>` and a dynamically mapped
+loopback port. Service health checks use `pg_isready`; the migration runner also
+performs a bounded connection-readiness check. Python 3.12 and the existing
+`psycopg2-binary==2.9.9` requirement are used; no dependency upgrades are needed.
+
+`REMAN_RUN_POSTGRES_TESTS=1` is mandatory. `postgres_tests/` is outside the default
+`pytest.ini` test paths, and explicitly selecting it without opt-in fails rather
+than skipping or using SQLite. The dedicated CI job always opts in and runs:
+
+```sh
+python -m pip install -r requirements.txt -r requirements-test.txt
+python -m pip check
+python scripts/migration_check.py --heads-only
+python scripts/ci_postgres.py --receipt "$REMAN_PG_TEST_RECEIPT"
+python -m pytest -ra postgres_tests
+```
+
+The PostgreSQL guard permits only `127.0.0.1`, the exact designated mapped port,
+the database derived from the run ID, and the fixed test-only user/password
+shown below. Unknown DSN options, alternate hosts, database names, credentials
+and inherited libpq `PG*` environment settings are rejected before a driver
+connection. Both SQLAlchemy and raw psycopg2 connections are guarded. Existing
+SQLite file/memory guards are unchanged and remain active. Application `.env`
+loading is disabled for the PostgreSQL gate; `DATABASE_URL` is never accepted as
+an input target.
+
+The migration runner verifies PostgreSQL major version 16, database name, owner,
+login/session role, application name, cluster identifier and database OID. It requires an
+empty public schema and no other user schemas, relations, types or routines
+before migrating. It applies the complete Alembic chain without stamping or
+`create_all()`, then checks revision, model tables/columns, primary keys, nullability,
+enum labels, foreign keys and unique constraints. The repeatability fingerprint
+includes all public tables, column defaults, indexes, constraints, sequences,
+views, materialized views and enum definitions, including non-model objects.
+A repeated upgrade must leave that fingerprint and revision unchanged. Any
+failure fails the job.
+
+Only after those checks does it exclusively create a new migration receipt.
+The receipt has a versioned format and includes the database OID, so recreating
+the same database name in the same cluster invalidates an earlier receipt.
+Integration fixtures require that receipt and recheck target, cluster/database
+instance, revision and schema fingerprint. Tests commit real PostgreSQL transactions, use unique
+rows per case and dispose sessions/engines afterwards. They never drop, truncate,
+reset or delete a database. Cases cover organisations and all user roles, HTTP
+job creation, the persisted pre-survey gate, survey completion and repeat
+submission, BOM quantities, audits/revisions, workflow completion guards,
+cross-organisation access and transaction rollback. The isolated service is
+removed by GitHub Actions when the job ends.
+
+### Explicit local execution outside a socket-restricted Work session
+
+Do not run these commands inside a Work session that prohibits sockets. They
+require a functioning Docker daemon and permission to use local sockets. Start
+a **new** container; do not reuse an existing application database or source
+credentials from application environment files. No containers or databases are
+started automatically by the test runner.
+
+```sh
+export REMAN_RUN_POSTGRES_TESTS=1
+export REMAN_PG_TEST_ID="local_$(python -c 'import uuid; print(uuid.uuid4().hex[:12])')"
+export REMAN_PG_TEST_HOST=127.0.0.1
+export REMAN_PG_TEST_DATABASE="reman_pg_test_$REMAN_PG_TEST_ID"
+export REMAN_PG_TEST_USER=reman_pg_test
+export REMAN_PG_TEST_PASSWORD=reman-postgres-ci-only
+export REMAN_PG_TEST_RECEIPT="$(mktemp -d /tmp/reman-pg-receipt-XXXXXX)/receipt.json"
+
+docker run --rm -d --name "$REMAN_PG_TEST_DATABASE" \
+  -e POSTGRES_USER="$REMAN_PG_TEST_USER" \
+  -e POSTGRES_PASSWORD="$REMAN_PG_TEST_PASSWORD" \
+  -e POSTGRES_DB="$REMAN_PG_TEST_DATABASE" \
+  -p 127.0.0.1::5432 postgres:16
+export REMAN_PG_TEST_PORT="$(docker inspect --format='{{(index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort}}' "$REMAN_PG_TEST_DATABASE")"
+
+python scripts/ci_postgres.py --receipt "$REMAN_PG_TEST_RECEIPT"
+python -m pytest -ra postgres_tests
+```
+
+All inherited libpq `PG*` variables must be absent; the guard refuses them rather
+than silently ignoring potentially redirecting options. The published credentials
+are exclusively for this disposable service. Its internal PostgreSQL port is 5432;
+the approved host port is the one reported by Docker. The receipt path must be new.
+The migration runner deliberately refuses a second full invocation against the
+now-populated database; its internal repeated `upgrade head` verifies repeatability.
+Use another newly created service/database/receipt for another full gate run.
+
+**Execution status:** PostgreSQL migrations, schema checks, repeated upgrade and
+integration tests have **NOT EXECUTED** in the socket-restricted Work environment.
+They remain unverified until this workflow actually runs. Default-suite tests in
+`tests/test_postgres_safety.py` validate rejection and configuration using pure
+inputs and fake drivers; those results are not PostgreSQL integration results.
+Neither local SQLite success nor YAML parsing is evidence of a PostgreSQL pass.
+
+
+PostgreSQL-specific migration review risks remain pending a live run. Existing
+revision `ca2e176c395f` declares the Boolean `is_resolved` column with
+`server_default=sa.text('0')`; SQLAlchemy's PostgreSQL compiler emits
+`BOOLEAN DEFAULT 0 NOT NULL`, which requires server validation. The existing
+native enum creation/alteration branches also require PostgreSQL execution;
+PostgreSQL 16 does not permit using a newly added enum value until its transaction
+commits. PostgreSQL constraint reflection and schema/model compatibility cannot
+be established from the SQLite suite. Existing migration history is unchanged;
+this gate must fail on such discrepancies rather than work around them.
