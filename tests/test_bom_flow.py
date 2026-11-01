@@ -1,6 +1,5 @@
 import pytest
 
-from app import create_app
 from services.job_services import ensure_survey_from_template, change_job_status
 from models import (
     db,
@@ -16,20 +15,12 @@ from models import (
 
 
 @pytest.fixture()
-def app():
-    app = create_app()
-    app.config.update(
-        SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
-        TESTING=True,
-        WTF_CSRF_ENABLED=False,
-    )
+def app(test_app_factory):
+    app = test_app_factory(database_uri="sqlite:///:memory:")
     with app.app_context():
-        db.create_all()
         db.session.add(Organization(name="Test Org", slug="test-org-bom-flow"))
         db.session.commit()
         yield app
-        db.session.remove()
-        db.drop_all()
 
 
 @pytest.fixture()

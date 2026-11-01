@@ -1,7 +1,6 @@
 import pytest
 import io
 
-from app import create_app
 from services.illustration_helpers import _extract_rows_from_pdf_text
 from models import (
     db,
@@ -19,21 +18,12 @@ from werkzeug.security import generate_password_hash
 
 
 @pytest.fixture()
-def app_instance(tmp_path):
-    app = create_app()
-    app.config.update(
-        SQLALCHEMY_DATABASE_URI=f"sqlite:///{tmp_path / 'test.db'}",
-        TESTING=True,
-        WTF_CSRF_ENABLED=False,
-        ENFORCE_CSRF=False,
-    )
+def app_instance(tmp_path, test_app_factory):
+    app = test_app_factory(database_uri=f"sqlite:///{tmp_path / 'test.db'}")
     with app.app_context():
-        db.create_all()
         db.session.add(Organization(name="Illustration Org", slug="illo-org"))
         db.session.commit()
         yield app
-        db.session.remove()
-        db.drop_all()
 
 
 @pytest.fixture()
@@ -143,16 +133,9 @@ HEX COLLAR BOLT M14X118-10.9-PHR
     assert rows[1]["qty"] == 14
 
 
-def test_wizard_csv_import_updates_state(tmp_path):
-    app = create_app()
-    app.config.update(
-        SQLALCHEMY_DATABASE_URI=f"sqlite:///{tmp_path / 'wizard.db'}",
-        TESTING=True,
-        WTF_CSRF_ENABLED=False,
-        ENFORCE_CSRF=False,
-    )
+def test_wizard_csv_import_updates_state(tmp_path, test_app_factory):
+    app = test_app_factory(database_uri=f"sqlite:///{tmp_path / 'wizard.db'}")
     with app.app_context():
-        db.create_all()
         db.session.add(Organization(name="Wizard Org", slug="wizard-org"))
         db.session.commit()
         org = Organization.query.filter_by(slug="wizard-org").first()

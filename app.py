@@ -37,6 +37,7 @@ from flask import (
     make_response,
     g,
     has_request_context,
+    current_app,
 )
 from flask_wtf import CSRFProtect
 from flask_wtf.csrf import generate_csrf
@@ -389,12 +390,15 @@ class LargeFormRequest(Flask.request_class):
 # Flask application factory
 # ---------------------------------------------------------------------
 app = Flask(__name__)
+_default_app = app
 
 
-def create_app(config_object=None):
+def create_app(config_object=None, *, app_instance=None, config_overrides=None):
     """
-    Configure the Flask app (idempotent) and return it.
+    Configure the default app idempotently, or an explicitly supplied fresh app.
+    Apply overrides before initialising extensions and their database engines.
     """
+    app = app_instance if app_instance is not None else _default_app
     if getattr(app, "_configured", False):
         return app
 
@@ -405,6 +409,8 @@ def create_app(config_object=None):
         app.config["APP_ENV"] = os.environ.get("APP_ENV")
     if "ENABLE_DEV_TOOLS" in os.environ:
         app.config["ENABLE_DEV_TOOLS"] = os.environ.get("ENABLE_DEV_TOOLS", "").lower() in {"1", "true", "yes", "on"}
+    if config_overrides:
+        app.config.update(config_overrides)
     if os.environ.get("PYTEST_CURRENT_TEST"):
         app.config["ENFORCE_CSRF"] = False
         app.config["WTF_CSRF_ENABLED"] = False
@@ -555,6 +561,10 @@ def create_app(config_object=None):
     )
 
     register_app_blueprints(app, register_optional_blueprint)
+    if "uploaded_file" not in app.view_functions:
+        app.add_url_rule("/uploads/<path:filename>", view_func=uploaded_file)
+    if inject_globals not in app.template_context_processors[None]:
+        app.context_processor(inject_globals)
 
     with app.app_context():
         record_runtime_db_details(app, db)
@@ -632,6 +642,7 @@ def next_action_for_job(job, user):
 @app.route("/uploads/<path:filename>")
 @login_required
 def uploaded_file(filename):
+    app = current_app
     def _is_inline_image(path):
         return os.path.splitext(path)[1].lower() in {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
@@ -682,6 +693,7 @@ def uploaded_file(filename):
 # ---------------------------------------------------------------------
 @app.context_processor
 def inject_globals():
+    app = current_app
     def testid(value: str) -> str:
         if not app.config.get("ENABLE_TEST_SELECTORS"):
             return ""

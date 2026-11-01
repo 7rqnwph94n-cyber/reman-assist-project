@@ -1,6 +1,8 @@
+from datetime import datetime, timezone
+from urllib.parse import urlsplit
+
 import pytest
 
-from app import create_app
 from models import (
     db,
     Organization,
@@ -15,25 +17,19 @@ from models import (
     JobReportRevisionLog,
     JobStatusEnum,
     MeasurementAuditLog,
+    PreSurveyResult,
+    DecisionEnum,
+    StockStatusEnum,
 )
 from werkzeug.security import generate_password_hash
 from services.job_services import ensure_survey_from_template
 
 
 @pytest.fixture()
-def app_instance(tmp_path):
-    app = create_app()
-    app.config.update(
-        SQLALCHEMY_DATABASE_URI=f"sqlite:///{tmp_path / 'survey.db'}",
-        TESTING=True,
-        WTF_CSRF_ENABLED=False,
-        ENFORCE_CSRF=False,
-    )
+def app_instance(tmp_path, test_app_factory):
+    app = test_app_factory(database_uri=f"sqlite:///{tmp_path / 'survey.db'}")
     with app.app_context():
-        db.create_all()
         yield app
-        db.session.remove()
-        db.drop_all()
 
 
 @pytest.fixture()
@@ -41,10 +37,32 @@ def client(app_instance):
     return app_instance.test_client()
 
 
-def _login(client, user_id, job_id):
+def _login(client, user_id):
     with client.session_transaction() as sess:
         sess["user_id"] = user_id
-        sess[f"pre_survey_done_{job_id}"] = True
+
+
+def _completion_state(job_id):
+    queries = {
+        "job": Job.query.filter_by(id=job_id),
+        "survey": SurveyItem.query.filter_by(job_id=job_id),
+        "bom": PartRequirement.query.filter_by(job_id=job_id),
+        "audit": AuditLog.query.filter_by(job_id=job_id),
+        "revisions": JobReportRevisionLog.query.filter_by(job_id=job_id),
+        "pre_survey": PreSurveyResult.query.filter_by(job_id=job_id),
+        "measurements": MeasurementAuditLog.query.join(SurveyItem).filter(
+            SurveyItem.job_id == job_id
+        ),
+    }
+    # Copy every persisted field, including IDs and timestamps, so a repeat
+    # cannot silently replace rows or change content while preserving counts.
+    return {
+        name: [
+            {column.key: getattr(row, column.key) for column in row.__table__.columns}
+            for row in sorted(query.all(), key=lambda row: row.id)
+        ]
+        for name, query in queries.items()
+    }
 
 
 def test_survey_complete_idempotent(app_instance, client):
@@ -79,11 +97,23 @@ def test_survey_complete_idempotent(app_instance, client):
         job_id = job.id
         admin_id = admin.id
 
+        db.session.add(
+            PreSurveyResult(
+                job_id=job_id,
+                data='{"Cleaned": true}',
+                completed_at=datetime.now(timezone.utc),
+            )
+        )
+        db.session.commit()
         ensure_survey_from_template(job)
-        items = SurveyItem.query.filter_by(job_id=job_id).all()
+        items = SurveyItem.query.filter_by(job_id=job_id).order_by(SurveyItem.pos).all()
         item_ids = [i.id for i in items]
+        assert len(item_ids) == 2
+        assert job.pre_survey_result is not None
+        assert job.survey_version == 0
+        assert job.report_revision == 0
 
-    _login(client, admin_id, job_id)
+    _login(client, admin_id)
 
     form = {
         "action": "complete",
@@ -95,29 +125,45 @@ def test_survey_complete_idempotent(app_instance, client):
 
     res = client.post(f"/jobs/{job_id}/survey", data=form)
     assert res.status_code == 302
+    assert res.location == f"/jobs/{job_id}/parts"
 
     with app_instance.app_context():
-        bom_count = PartRequirement.query.filter_by(job_id=job_id).count()
-        log_count = AuditLog.query.filter_by(job_id=job_id, action="survey_completed").count()
-        rev_count = JobReportRevisionLog.query.filter_by(job_id=job_id).count()
-        meas_count = MeasurementAuditLog.query.join(SurveyItem).filter(SurveyItem.job_id == job_id).count()
-        job_status = db.session.get(Job, job_id).status
-        assert bom_count == len(item_ids)
-        assert log_count == 1
-        assert job_status == JobStatusEnum.OFFICE
-        assert meas_count == 0
+        job = db.session.get(Job, job_id)
+        assert job.status == JobStatusEnum.OFFICE
+        assert job.survey_version == 1
+        assert job.parts_version == 0
+        assert job.report_revision == 2
+
+        items = SurveyItem.query.filter_by(job_id=job_id).order_by(SurveyItem.pos).all()
+        assert [(item.id, item.decision) for item in items] == [
+            (item_id, DecisionEnum.REPLACE) for item_id in item_ids
+        ]
+        parts = PartRequirement.query.filter_by(job_id=job_id).order_by(PartRequirement.pos).all()
+        assert [
+            (part.survey_item_id, part.part_no, part.name, part.qty_required, part.stock_status)
+            for part in parts
+        ] == [
+            (item_ids[0], "P1", "Part1", 1, StockStatusEnum.TO_ORDER),
+            (item_ids[1], "P2", "Part2", 1, StockStatusEnum.TO_ORDER),
+        ]
+        logs = AuditLog.query.filter_by(job_id=job_id).order_by(AuditLog.id).all()
+        assert [(log.action, log.user_id) for log in logs] == [
+            ("status_change", None),
+            ("survey_completed", admin_id),
+        ]
+        revisions = JobReportRevisionLog.query.filter_by(job_id=job_id).order_by(
+            JobReportRevisionLog.revision
+        ).all()
+        assert [(rev.revision, rev.reason, rev.user_id) for rev in revisions] == [
+            (1, "status_change:office", None),
+            (2, "survey_completed/bom_generated", admin_id),
+        ]
+        assert MeasurementAuditLog.query.join(SurveyItem).filter(SurveyItem.job_id == job_id).count() == 0
+        completed_state = _completion_state(job_id)
 
     res = client.post(f"/jobs/{job_id}/survey", data=form)
     assert res.status_code == 302
+    assert urlsplit(res.location).path == f"/jobs/{job_id}/survey"
 
     with app_instance.app_context():
-        bom_count2 = PartRequirement.query.filter_by(job_id=job_id).count()
-        log_count2 = AuditLog.query.filter_by(job_id=job_id, action="survey_completed").count()
-        rev_count2 = JobReportRevisionLog.query.filter_by(job_id=job_id).count()
-        meas_count2 = MeasurementAuditLog.query.join(SurveyItem).filter(SurveyItem.job_id == job_id).count()
-        job_status2 = db.session.get(Job, job_id).status
-        assert bom_count2 == bom_count
-        assert log_count2 == log_count
-        assert rev_count2 == rev_count
-        assert job_status2 == job_status
-        assert meas_count2 == meas_count
+        assert _completion_state(job_id) == completed_state

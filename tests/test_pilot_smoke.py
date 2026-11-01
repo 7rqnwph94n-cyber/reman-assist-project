@@ -3,7 +3,6 @@ import os
 import types
 import pytest
 
-from app import create_app
 from models import (
     db,
     Organization,
@@ -26,20 +25,10 @@ from sqlalchemy.exc import IntegrityError
 
 
 @pytest.fixture()
-def app_instance(tmp_path):
-    app = create_app()
-    app.config.update(
-        SQLALCHEMY_DATABASE_URI=f"sqlite:///{tmp_path / 'pilot.db'}",
-        TESTING=True,
-        WTF_CSRF_ENABLED=False,
-        ENFORCE_CSRF=False,
-        UPLOAD_FOLDER=str(tmp_path / "uploads"),
-    )
+def app_instance(tmp_path, test_app_factory):
+    app = test_app_factory(database_uri=f"sqlite:///{tmp_path / 'pilot.db'}")
     with app.app_context():
-        db.create_all()
         yield app
-        db.session.remove()
-        db.drop_all()
 
 
 @pytest.fixture()

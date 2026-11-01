@@ -11,9 +11,13 @@ if sys.platform == "darwin":
     os.environ["DYLD_LIBRARY_PATH"] = _existing
 
 import pytest
+from flask import Flask
+from sqlalchemy.engine import make_url
 from werkzeug.security import generate_password_hash
 
 from app import create_app
+from config import TestingConfig
+from tests.db_safety import allow_database, assert_engine_database, forget_database
 from models import (
     db,
     User,
@@ -53,31 +57,64 @@ def _get_default_org():
 
 
 @pytest.fixture
-def app_for_tests(tmp_path: Path):
-    from app import app as flask_app
-    flask_app._configured = False
-    flask_app._got_first_request = False
-    app = create_app()
-    pdf_engine = _detect_pdf_renderer()
-    app.config.update(
-        TESTING=True,
-        WTF_CSRF_ENABLED=False,
-        ENFORCE_CSRF=False,
+def test_app_factory(tmp_path: Path):
+    apps = []
+
+    def make_app(database_uri=None, **overrides):
+        intended_uri = database_uri or f"sqlite:///{tmp_path / 'test.db'}"
+        url = make_url(intended_uri)
+        assert url.drivername == "sqlite" and not url.query
+        database_path = None
+        if url.database != ":memory:":
+            database_path = allow_database(url.database, tmp_path)
+        app = Flask("app")
+        apps.append((app, intended_uri, database_path))
+        config = {
+            "UPLOAD_FOLDER": str(tmp_path / "uploads"),
+            "LOG_FILE": None,
+            "REDIS_URL": "",
+            "ENABLE_QUICKBOOKS": False,
+            **overrides,
+            "SQLALCHEMY_DATABASE_URI": intended_uri,
+        }
+        create_app(TestingConfig, app_instance=app, config_overrides=config)
+        with app.app_context():
+            assert set(db.engines) == {None}
+            assert_engine_database(db.engine, intended_uri)
+            db.create_all()
+        return app
+
+    yield make_app
+
+    for app, intended_uri, database_path in reversed(apps):
+        try:
+            with app.app_context():
+                if "sqlalchemy" in app.extensions:
+                    db.session.remove()
+                    try:
+                        assert_engine_database(db.engine, intended_uri)
+                        db.drop_all()
+                    finally:
+                        db.session.remove()
+                        for engine in db.engines.values():
+                            engine.dispose()
+        finally:
+            if database_path is not None:
+                forget_database(database_path)
+
+
+@pytest.fixture
+def app_for_tests(test_app_factory):
+    app = test_app_factory(
         ENABLE_LEGACY_EXPORT=True,
-        SQLALCHEMY_DATABASE_URI=f"sqlite:///{tmp_path / 'test.db'}",
-        UPLOAD_FOLDER=str(tmp_path / "uploads"),
-        PDF_RENDERER=pdf_engine,
+        PDF_RENDERER=_detect_pdf_renderer(),
         PDF_RENDERER_FALLBACK="stub",
     )
     with app.app_context():
-        db.drop_all()
-        db.create_all()
         default_org = Organization(name="Global Reman", slug=DEFAULT_TEST_ORG_SLUG)
         db.session.add(default_org)
         db.session.commit()
         yield app
-        db.session.remove()
-        db.drop_all()
 
 
 @pytest.fixture

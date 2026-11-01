@@ -1,7 +1,6 @@
 import json
 import pytest
 
-from app import create_app
 from models import (
     db,
     Template,
@@ -18,20 +17,12 @@ from models import (
 
 
 @pytest.fixture
-def app_instance():
-    app = create_app()
-    app.config.update(
-        SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
-        TESTING=True,
-        WTF_CSRF_ENABLED=False,
-    )
+def app_instance(test_app_factory):
+    app = test_app_factory(database_uri="sqlite:///:memory:")
     with app.app_context():
-        db.create_all()
         db.session.add(Organization(name="Presurvey Org", slug="presurvey-org"))
         db.session.commit()
         yield app
-        db.session.remove()
-        db.drop_all()
 
 
 @pytest.fixture

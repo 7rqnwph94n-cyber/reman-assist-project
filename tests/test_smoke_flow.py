@@ -6,28 +6,17 @@ Uses an in-memory SQLite DB to avoid touching real data.
 import pytest
 from flask import Flask
 
-from app import create_app, app as flask_app
 from models import db, Job, Template, TemplateItem, SurveyItem, DecisionEnum, JobStatusEnum, PartRequirement, PickList, Organization
 from services.job_services import ensure_survey_from_template
 
 
 @pytest.fixture
-def app_instance():
-    flask_app._configured = False
-    flask_app._got_first_request = False
-    app = create_app()
-    app.config.update(
-        SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
-        TESTING=True,
-        WTF_CSRF_ENABLED=False,
-    )
+def app_instance(test_app_factory):
+    app = test_app_factory(database_uri="sqlite:///:memory:")
     with app.app_context():
-        db.create_all()
         db.session.add(Organization(name="Smoke Org", slug="smoke-org"))
         db.session.commit()
         yield app
-        db.session.remove()
-        db.drop_all()
 
 
 @pytest.fixture

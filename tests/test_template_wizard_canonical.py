@@ -1,26 +1,16 @@
 import pytest
 
-from app import create_app
 from models import db, Template, TemplateItem, RoleEnum, User, TemplateWizardState, TemplatePart, TemplateOccurrence, Organization
 from werkzeug.security import generate_password_hash
 
 
 @pytest.fixture()
-def app_instance(tmp_path):
-    app = create_app()
-    app.config.update(
-        SQLALCHEMY_DATABASE_URI=f"sqlite:///{tmp_path / 'wizard_canon.db'}",
-        TESTING=True,
-        WTF_CSRF_ENABLED=False,
-        ENFORCE_CSRF=False,
-    )
+def app_instance(tmp_path, test_app_factory):
+    app = test_app_factory(database_uri=f"sqlite:///{tmp_path / 'wizard_canon.db'}")
     with app.app_context():
-        db.create_all()
         db.session.add(Organization(name="Canon Org", slug="canon-org"))
         db.session.commit()
         yield app
-        db.session.remove()
-        db.drop_all()
 
 
 @pytest.fixture()

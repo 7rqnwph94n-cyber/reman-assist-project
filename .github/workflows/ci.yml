@@ -1,12 +1,22 @@
 name: ci
 
-on:
+'on':
   push:
   pull_request:
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      FLASK_CONFIG: testing
+      FLASK_ENV: development
+      APP_ENV: test
+      DATABASE_URL: 'sqlite:///:memory:'
+      SECRET_KEY: disposable-ci-test-key-only
+      ENABLE_QUICKBOOKS: '0'
+      REDIS_URL: ''
+      RUN_STRESS_TESTS: '0'
+      PILOT_REQUIRE_PDF: '0'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -14,16 +24,14 @@ jobs:
           python-version: '3.12'
       - name: Install deps
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-      - name: Migration check (heads only)
+          python -m pip install -r requirements.txt -r requirements-test.txt
+          python -m pip check
+      - name: Validate migration graph (no database)
         run: |
-          python scripts/migration_check.py --db ./app.db
-      - name: Migrate (sqlite)
+          python scripts/migration_check.py --heads-only
+      - name: Migrate and verify a fresh guarded disposable database
         run: |
-          python -m flask --app app:create_app db upgrade
-      - name: Pytest
-        env:
-          FLASK_CONFIG: testing
+          python scripts/ci_migrations.py
+      - name: Complete default pytest suite (guarded disposable databases)
         run: |
-          pytest -q
+          python -m pytest -ra

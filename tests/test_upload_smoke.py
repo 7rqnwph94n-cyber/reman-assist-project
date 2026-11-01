@@ -1,10 +1,8 @@
 import base64
 import io
-import os
 
 import pytest
 
-from app import create_app, app as flask_app
 from models import db, Template, TemplateItem, Job, User, RoleEnum, JobStatusEnum, Organization
 
 
@@ -14,25 +12,12 @@ PNG_1X1 = base64.b64decode(
 
 
 @pytest.fixture
-def app_instance(tmp_path):
-    flask_app._configured = False
-    flask_app._got_first_request = False
-    app = create_app()
-    upload_root = tmp_path / "uploads"
-    os.makedirs(upload_root, exist_ok=True)
-    app.config.update(
-        SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
-        TESTING=True,
-        WTF_CSRF_ENABLED=False,
-        UPLOAD_FOLDER=str(upload_root),
-    )
+def app_instance(test_app_factory):
+    app = test_app_factory(database_uri="sqlite:///:memory:")
     with app.app_context():
-        db.create_all()
         db.session.add(Organization(name="Upload Org", slug="upload-org"))
         db.session.commit()
         yield app
-        db.session.remove()
-        db.drop_all()
 
 
 @pytest.fixture

@@ -4,7 +4,6 @@ BOM behavior tests:
 """
 
 import pytest
-from app import create_app
 from models import (
     db,
     Job,
@@ -22,19 +21,12 @@ from services.job_services import ensure_survey_from_template
 
 
 @pytest.fixture
-def app_instance():
-    app = create_app()
-    app.config.update(
-        SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
-        TESTING=True,
-    )
+def app_instance(test_app_factory):
+    app = test_app_factory(database_uri="sqlite:///:memory:")
     with app.app_context():
-        db.create_all()
         db.session.add(Organization(name="NC Org", slug="nc-org"))
         db.session.commit()
         yield app
-        db.session.remove()
-        db.drop_all()
 
 
 def seed_job_with_template():

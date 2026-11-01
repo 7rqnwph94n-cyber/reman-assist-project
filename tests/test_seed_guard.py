@@ -1,10 +1,5 @@
-from app import create_app, app as flask_app
-
-
-def test_seed_reset_blocked_in_production(monkeypatch):
-    flask_app._configured = False
-    flask_app._got_first_request = False
-    app = create_app()
+def test_seed_reset_blocked_in_production(monkeypatch, test_app_factory):
+    app = test_app_factory()
     app.config.update(DEBUG=False, TESTING=False, APP_ENV="production")
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.delenv("ALLOW_DANGEROUS_COMMANDS", raising=False)
@@ -14,10 +9,8 @@ def test_seed_reset_blocked_in_production(monkeypatch):
     assert "Refusing to run seed reset in production" in result.output
 
 
-def test_seed_reset_allowed_in_dev(monkeypatch):
-    flask_app._configured = False
-    flask_app._got_first_request = False
-    app = create_app()
+def test_seed_reset_allowed_in_dev(monkeypatch, test_app_factory):
+    app = test_app_factory()
     app.config.update(DEBUG=True, TESTING=False, APP_ENV="dev")
     monkeypatch.setenv("APP_ENV", "dev")
     monkeypatch.setenv("FLASK_ENV", "development")
