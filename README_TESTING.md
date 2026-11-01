@@ -26,7 +26,7 @@ FLASK_CONFIG=testing APP_ENV=test RUN_STRESS_TESTS=0 PILOT_REQUIRE_PDF=0 python 
 ```
 
 `pytest.ini` selects the complete `tests/` suite, excluding `e2e/`. The expected
-review baseline is **169 passed, 9 skipped**, including 69 socket-free PostgreSQL
+review baseline is **231 passed, 9 skipped**, including 69 socket-free PostgreSQL
 configuration/guard unit cases. The nine intentional skips are seven
 stress/integration tests gated by `RUN_STRESS_TESTS=1` and two pilot PDF tests
 gated by `PILOT_REQUIRE_PDF=1`; PDF import additionally requires a sample file.
@@ -200,21 +200,28 @@ inputs and fake drivers; those results are not PostgreSQL integration results.
 Neither local SQLite success nor YAML parsing is evidence of a PostgreSQL pass.
 
 
-PostgreSQL-specific migration review risks remain pending a live run. Existing
-revision `ca2e176c395f` declares the Boolean `is_resolved` column with
-`server_default=sa.text('0')`; SQLAlchemy's PostgreSQL compiler emits
-`BOOLEAN DEFAULT 0 NOT NULL`, which requires server validation. The existing
-native enum creation/alteration branches also require PostgreSQL execution;
-PostgreSQL 16 does not permit using a newly added enum value until its transaction
-commits. PostgreSQL constraint reflection and schema/model compatibility cannot
-be established from the SQLite suite. Apart from the narrowly scoped FK repair
-below, historical migrations remain unchanged. The gate must fail on remaining
-discrepancies.
+PostgreSQL-specific migration behaviour still requires a live run. Native enum
+creation/alteration and PostgreSQL constraint reflection cannot be established
+from the SQLite suite. Newly added enum values must not be used until the
+transaction adding them commits. The gate must fail on remaining discrepancies.
 
 
 The first real PostgreSQL failure and its focused repair are documented in
-[the FK migration audit](docs/POSTGRES_FK_MIGRATION_REPAIR.md). The new migration
-head is `d2e3f4a5b6c7`. Thirteen additional migration regressions cover the missing
+[the FK migration audit](docs/POSTGRES_FK_MIGRATION_REPAIR.md). Revision
+`d2e3f4a5b6c7` repairs that omission. Thirteen migration regressions cover the missing
 report table, all FK operations and existing-schema/audit-data compatibility.
 Automatic downgrade of this additive audit-table repair is refused to protect
 existing revision history. Live PostgreSQL verification of the repair is pending.
+
+Cycle 3's [complete 41-revision audit](docs/POSTGRES_MIGRATION_AUDIT_CYCLE3.md)
+corrects five integer Boolean defaults in three historical migrations. The new
+head is `e3f4a5b6c7d8` (42 revisions): an additive repair supplies PostgreSQL's
+missing HOLD job-status label and enforces the model's required organization slug
+and upload timestamp. Existing nulls stop the upgrade for manual data review;
+automatic downgrade and unsafe SQLite parent rebuilds with foreign keys enabled
+are refused. No records are fabricated or deleted. Sixty-two new socket-free
+regressions cover defaults across every revision, PostgreSQL SQL compilation,
+enum labels, backfills, targeted downgrades and forward-repair safety. Use the
+focused commands in the audit document or the complete default suite above.
+The PostgreSQL CI gate and disposable database guards remain unchanged. Live
+PostgreSQL execution of these corrections is still pending.

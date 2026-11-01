@@ -59,7 +59,7 @@ def upgrade():
         if 'torque_sequence' not in existing_columns:
             batch_op.add_column(sa.Column('torque_sequence', sa.Integer(), nullable=True))
         if 'torque_confirmed' not in existing_columns:
-            batch_op.add_column(sa.Column('torque_confirmed', sa.Boolean(), nullable=True, server_default=sa.text('0')))
+            batch_op.add_column(sa.Column('torque_confirmed', sa.Boolean(), nullable=True, server_default=sa.false()))
 
 
 def downgrade():

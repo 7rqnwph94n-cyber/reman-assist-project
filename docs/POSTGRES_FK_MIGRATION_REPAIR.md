@@ -93,6 +93,7 @@ These are SQLite execution and offline PostgreSQL compilation results, not live
 PostgreSQL migration results. The dedicated PostgreSQL CI job, guards, schema
 checks and integration assertions remain unchanged and must execute the repair.
 The Work sandbox's socket restrictions still prevent local PostgreSQL execution;
-no server or container startup was retried. Known later migration risks such as
-`ca2e176c395f`'s Boolean `DEFAULT 0` and native enum operations remain outside this
-focused repair and may be exposed by the next real PostgreSQL run.
+no server or container startup was retried. The subsequent run exposed another
+integer Boolean default. Those defaults and the later schema review are covered
+by [the cycle 3 audit](POSTGRES_MIGRATION_AUDIT_CYCLE3.md); live PostgreSQL
+verification of the combined corrections remains pending.

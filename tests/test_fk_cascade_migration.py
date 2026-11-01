@@ -233,7 +233,9 @@ def test_incomplete_existing_table_fails_without_dropping_data(migration_app):
 
 def test_fresh_full_sqlite_migration_chain_includes_report_revisions(migration_app):
     upgrade(directory=MIGRATIONS, revision="head")
-    assert migration_script().get_current_head() == REPAIR_REVISION
+    script = migration_script()
+    head = script.get_current_head()
+    assert REPAIR_REVISION in {revision.revision for revision in script.walk_revisions(base="base", head=head)}
     with db.engine.connect() as connection:
         assert sa.inspect(connection).has_table("job_report_revisions")
-        assert connection.execute(sa.text("SELECT version_num FROM alembic_version")).scalar_one() == REPAIR_REVISION
+        assert connection.execute(sa.text("SELECT version_num FROM alembic_version")).scalar_one() == head
