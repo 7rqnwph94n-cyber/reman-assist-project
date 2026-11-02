@@ -10,7 +10,7 @@ from werkzeug.security import generate_password_hash
 from models import (
     db, Organization, User, RoleEnum, Template, TemplateItem, Job, JobStatusEnum,
     SurveyItem, PreSurveyResult, PartRequirement, StockStatusEnum, DecisionEnum,
-    AuditLog, JobReportRevisionLog, MeasurementAuditLog, InvalidJobTransition,
+    AuditLog, JobReportRevisionLog, MeasurementAuditLog, InvalidJobTransition, Attachment, JobLog,
 )
 from services.job_services import change_job_status
 from utils.tenant_scope import set_current_org_id
@@ -20,10 +20,27 @@ PASSWORD = "PostgresTestOnly123!"
 
 
 def login(client, user):
-    response = client.post("/login", data={"username": user["username"], "password": PASSWORD})
-    assert response.status_code == 302
+    # The fixture may already be logged into another tenant. Follow the public
+    # logout flow rather than querying credentials under that tenant's scope.
     with client.session_transaction() as session:
+        authenticated = "user_id" in session
+    if authenticated:
+        response = client.get("/logout")
+        assert response.status_code == 302 and urlsplit(response.location).path == "/login"
+        with client.session_transaction() as session:
+            assert "user_id" not in session
+    response = client.post("/login", data={"username": user["username"], "password": PASSWORD})
+    with client.session_transaction() as session:
+        assert response.status_code == 302, (response.status_code, session.get("_flashes", []))
         assert session["user_id"] == user["id"]
+    expected = "/stores" if user["role"] == RoleEnum.STORES else "/dashboard"
+    assert urlsplit(response.location).path == expected
+    with client.application.app_context():
+        persisted = db.session.get(User, user["id"])
+        assert persisted.username == user["username"] and persisted.role == user["role"]
+        assert persisted.organization_id == user["org_id"]
+        audit = AuditLog.query.filter_by(action="login", user_id=user["id"]).order_by(AuditLog.id.desc()).first()
+        assert audit is not None and audit.message == f"User logged in: {user['username']}"
 
 
 def state(job_id):
@@ -35,6 +52,8 @@ def state(job_id):
         "audit": AuditLog.query.filter_by(job_id=job_id),
         "revisions": JobReportRevisionLog.query.filter_by(job_id=job_id),
         "measurements": MeasurementAuditLog.query.join(SurveyItem).filter(SurveyItem.job_id == job_id),
+        "attachments": Attachment.query.filter_by(job_id=job_id),
+        "job_logs": JobLog.query.filter_by(job_id=job_id),
     }
     return {name: [
         {column.key: getattr(row, column.key) for column in row.__table__.columns}
@@ -60,7 +79,7 @@ def job_data(postgres_app, client):
                 )
                 db.session.add(user)
                 db.session.flush()
-                users[label][role] = {"id": user.id, "username": user.username, "org_id": org.id}
+                users[label][role] = {"id": user.id, "username": user.username, "org_id": org.id, "role": role}
         org_id = users["owner"][RoleEnum.ADMIN]["org_id"]
         template = Template(
             name=f"PG template {token}", engine_type="PG", organization_id=org_id,
@@ -91,7 +110,16 @@ def job_data(postgres_app, client):
         assert job.assigned_to_id == users["owner"][RoleEnum.TECHNICIAN]["id"]
         assert SurveyItem.query.filter_by(job_id=job.id).count() == 2
         job_id = job.id
-    return {"job_id": job_id, "template_id": template_id, "users": users}
+        other = users["other"]
+        own_job = Job(
+            job_number=f"PG-own-{token}", job_pack_id=f"PG-own-{token}",
+            organization_id=other[RoleEnum.ADMIN]["org_id"],
+            assigned_to_id=other[RoleEnum.TECHNICIAN]["id"], created_by_id=other[RoleEnum.OFFICE]["id"],
+        )
+        db.session.add(own_job)
+        db.session.commit()
+        other_job_id = own_job.id
+    return {"job_id": job_id, "template_id": template_id, "users": users, "other_job_id": other_job_id}
 
 
 def test_organisations_roles_and_job_creation(postgres_app, job_data):
@@ -195,21 +223,61 @@ def test_roles_cannot_modify_presurvey(postgres_app, client, job_data, role):
 
 @pytest.mark.parametrize("role", [RoleEnum.ADMIN, RoleEnum.OFFICE, RoleEnum.TECHNICIAN])
 def test_cross_organisation_access_is_rejected(postgres_app, client, job_data, role):
+    assert_cross_organisation_isolation(postgres_app, client, job_data, role)
+
+
+def assert_cross_organisation_isolation(app, client, job_data, role):
+    """Shared HTTP contract; local SQLite regressions are explicitly separate."""
     job_id = job_data["job_id"]
     outsider = job_data["users"]["other"][role]
     login(client, outsider)
-    with postgres_app.app_context():
+    own_job_id = job_data["other_job_id"]
+    with app.app_context():
         before = state(job_id)
+        assert len(before["job"]) == 1 and before["survey"]
+        own_before = state(own_job_id)
+        assert own_before["job"][0]["organization_id"] == outsider["org_id"]
         set_current_org_id(outsider["org_id"])
         try:
             assert db.session.get(Job, job_id) is None
             assert db.session.get(Template, job_data["template_id"]) is None
+            assert db.session.get(Job, own_job_id) is not None
         finally:
             set_current_org_id(None)
-    assert client.get(f"/jobs/{job_id}").status_code == 404
-    assert client.get(f"/jobs/{job_id}/survey").status_code == 404
-    assert client.post(f"/jobs/{job_id}/survey", data={"action": "complete"}).status_code == 404
-    with postgres_app.app_context():
+    # All three users can read their own job, not just receive a login redirect.
+    response = client.get(f"/jobs/{own_job_id}")
+    assert response.status_code == 200
+    assert own_before["job"][0]["job_number"] in response.get_data(as_text=True)
+    requests = [
+        ("GET", f"/jobs/{job_id}", {}, 404),
+        ("GET", f"/jobs/{job_id}/survey", {}, 404),
+        ("POST", f"/jobs/{job_id}/survey", {"action": "complete", "survey_version": "0"}, 404),
+        ("GET", f"/jobs/{job_id}/parts", {}, 403 if role == RoleEnum.TECHNICIAN else 404),
+        ("POST", f"/jobs/{job_id}/parts", {"action": "save"}, 403 if role == RoleEnum.TECHNICIAN else 404),
+        ("POST", f"/jobs/{job_id}/pre_survey", {"field_1": "on", "notes": "denied write"},
+         403 if role == RoleEnum.OFFICE else 404),
+        ("POST", f"/admin/jobs/{job_id}/status", {"status": "complete", "reason": "denied override"},
+         404 if role == RoleEnum.ADMIN else 403),
+    ]
+    for method, path, form, expected in requests:
+        response = client.open(path, method=method, data=form)
+        # Role decorators may reject before lookup; supported roles get the
+        # tenant-scoped 404. Neither outcome may redirect to authentication.
+        assert response.status_code == expected, (role, method, path, response.status_code)
+        with client.session_transaction() as session:
+            assert session["user_id"] == outsider["id"]
+        with app.app_context():
+            assert state(job_id) == before
+            assert state(own_job_id) == own_before
+    # Authorised writes still work for Admin/Technician; Office remains denied.
+    response = client.post(f"/jobs/{own_job_id}/pre_survey", data={"notes": "own tenant write"})
+    assert response.status_code == (403 if role == RoleEnum.OFFICE else 302)
+    with app.app_context():
+        if role == RoleEnum.OFFICE:
+            assert state(own_job_id) == own_before
+        else:
+            assert urlsplit(response.location).path == f"/jobs/{own_job_id}/survey"
+            assert PreSurveyResult.query.filter_by(job_id=own_job_id).one().notes == "own tenant write"
         assert state(job_id) == before
 
 

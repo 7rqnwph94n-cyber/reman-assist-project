@@ -26,7 +26,7 @@ FLASK_CONFIG=testing APP_ENV=test RUN_STRESS_TESTS=0 PILOT_REQUIRE_PDF=0 python 
 ```
 
 `pytest.ini` selects the complete `tests/` suite, excluding `e2e/`. The expected
-review baseline is **288 passed, 9 skipped**, including 69 socket-free PostgreSQL
+review baseline is **299 passed, 9 skipped**, including 69 socket-free PostgreSQL
 configuration/guard unit cases. The nine intentional skips are seven
 stress/integration tests gated by `RUN_STRESS_TESTS=1` and two pilot PDF tests
 gated by `PILOT_REQUIRE_PDF=1`; PDF import additionally requires a sample file.
@@ -242,3 +242,14 @@ revision. Three new live uniqueness cases bring the dedicated PostgreSQL suite
 to 11 cases; these have **NOT EXECUTED locally**. The CI job still runs the full
 guarded migration/schema/repeatability gate and every PostgreSQL integration case.
 The focused local command and remaining compatibility limits are in the audit.
+
+Cycle 6's [authentication/tenant audit](docs/POSTGRES_AUTH_TENANT_REPAIR_CYCLE6.md)
+records the reproduced authenticated-client reuse failure and test-only repair.
+The integration login helper now performs a real logout before logging into
+another account and verifies the resulting user, role, organization and audit.
+Admin, Office and Technician cases check seven foreign-job read/write requests,
+unchanged persisted state after each denial, and authorised own-job access.
+Eleven new SQLite regressions exercise the same HTTP assertions and negative
+authentication paths; they are not PostgreSQL execution results. PostgreSQL
+collection remains 11 mandatory cases, and live verification of this repair is
+pending. No application authentication or tenant-protection code was changed.
