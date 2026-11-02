@@ -104,9 +104,15 @@ def page():
             browser_name, p.chromium
         )
         launch_args = ["--disable-crash-reporter", "--disable-breakpad", "--no-sandbox"]
+        launch_options = (
+            {"executable_path": os.environ["PW_EXECUTABLE_PATH"]}
+            if os.environ.get("PW_EXECUTABLE_PATH") else {}
+        )
         try:
-            browser = browser_type.launch(headless=headless, args=launch_args)
+            browser = browser_type.launch(headless=headless, args=launch_args, **launch_options)
         except Exception:
+            if launch_options:
+                raise
             # Fallback to a more reliable engine on macOS if Chromium crashes.
             fallback = p.webkit if browser_type is p.chromium else p.chromium
             browser = fallback.launch(headless=headless)

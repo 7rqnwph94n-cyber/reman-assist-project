@@ -832,12 +832,21 @@
   const statusEl = document.getElementById('autosave-status');
   const syncEl = document.getElementById('sync-status');
   if (!form) return;
-  if (form.dataset.readonly === '1') return;
   const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
   const jobId = form.dataset.jobId || form.getAttribute('data-job-id') || window.location.pathname.split('/')[2];
+  const acknowledgedSave = {{ save_ack|default(none)|tojson }};
   const legacyDraftKey = `reman_draft_job_${jobId}`;
   const draftKey = `reman_draft_org_${form.dataset.orgId}_job_${jobId}_${JSON.stringify([
     form.dataset.section, form.dataset.page, form.dataset.perPage, form.dataset.layout])}`;
+  if (form.dataset.readonly === '1') {
+    if (acknowledgedSave?.action === 'complete') {
+      try {
+        const raw = localStorage.getItem(draftKey);
+        if (raw && acknowledgedDraft(JSON.parse(raw))) clearDraft(false, acknowledgedSave.id);
+      } catch (_) { /* leave an unreadable draft intact */ }
+    }
+    return;
+  }
   let draftFromLegacy = false;
   const DRAFT_VERSION = 1;
   const rowFields = /^(decision|notes|measurement_value|spec_min|spec_max|measurement_unit|amount_required)_(\d+)$/;
@@ -903,6 +912,8 @@
 
   function saveDraft(draft) {
     try {
+      const existing = localStorage.getItem(draftKey);
+      if (existing && JSON.parse(existing).protected) return false;
       draft.timestamp = _formatDraftTimestamp();
       localStorage.setItem(draftKey, JSON.stringify(draft));
       return true;
@@ -912,11 +923,42 @@
     }
   }
 
-  function clearDraft() {
+  function clearDraft(explicit = false, expectedSaveId = null) {
     try {
+      const existing = localStorage.getItem(draftKey);
+      const stored = existing ? JSON.parse(existing) : null;
+      if (expectedSaveId && stored?.save_id !== expectedSaveId) return false;
+      if (stored?.protected && !explicit) return false;
       localStorage.removeItem(draftKey);
+      return true;
     } catch (err) {
       // ignore
+      return false;
+    }
+  }
+
+  function protectedDraft() {
+    try {
+      const stored = localStorage.getItem(draftKey);
+      return stored && JSON.parse(stored).protected ? JSON.parse(stored) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function protectDraft(draft) {
+    try {
+      const stored = localStorage.getItem(draftKey);
+      if (stored) {
+        const existing = JSON.parse(stored);
+        if (existing.protected) return existing;
+      }
+      const protectedCopy = {...draft, protected: true};
+      localStorage.setItem(draftKey, JSON.stringify(protectedCopy));
+      return protectedCopy;
+    } catch (_) {
+      stamp('Local draft could not be protected. Keep this page open and copy your inspection notes.');
+      return draft;
     }
   }
 
@@ -963,6 +1005,7 @@
 
   function shouldPromptRestore(draft) {
     if (!draft || !draft.fields) return false;
+    if (draft.protected) return true;
     if (!Array.isArray(draft.changed) || !Number.isSafeInteger(draft.base_version)) return true;
     if (draft.base_version !== Number(form.querySelector('[name="survey_version"]')?.value)) return true;
     if (draft.changed.length && !draft.changed.some(key => form.querySelector(`[name="${CSS.escape(key)}"]`))) return true;
@@ -975,20 +1018,37 @@
     return false;
   }
 
+  function acknowledgedDraft(draft) {
+    return acknowledgedSave && draft && !draft.protected &&
+      draft.save_id === acknowledgedSave.id &&
+      String(draft.job_id) === String(jobId) &&
+      Number(draft.base_version) + 1 === acknowledgedSave.version &&
+      draft.fields?.visible_ids === acknowledgedSave.visible_ids &&
+      (acknowledgedSave.action === 'complete'
+        ? Number(form.querySelector('[name="survey_version"]')?.value) >= acknowledgedSave.version
+        : Number(form.querySelector('[name="survey_version"]')?.value) === acknowledgedSave.version);
+  }
+
   function showRestorePrompt(draft) {
     const existing = document.getElementById('draft-restore');
     if (existing) return;
+    if (draft.protected || draft.base_version !== Number(form.querySelector('[name="survey_version"]')?.value)) {
+      draft = protectDraft(draft);
+    }
     const banner = document.createElement('div');
     banner.id = 'draft-restore';
     banner.className = 'draft-restore';
     const currentVersion = Number(form.querySelector('[name="survey_version"]')?.value);
-    const canRestore = Array.isArray(draft.changed) && Number.isSafeInteger(draft.base_version)
+    const canRestore = !draft.protected && Array.isArray(draft.changed) && Number.isSafeInteger(draft.base_version)
       && draft.base_version === currentVersion
       && draft.fields.visible_ids === form.querySelector('[name="visible_ids"]')?.value;
     const heading = document.createElement('div');
     heading.className = 'draft-restore__text';
     heading.textContent = canRestore ? 'Local edits found. Restore changed fields on this page?'
-      : 'This draft is from another survey version. Review your local values against the current page and enter any needed changes manually. Nothing has been merged.';
+      : 'This draft is from another survey version. Review your local values against the current page and enter any needed changes manually. Editing is paused until you discard this draft after review. Nothing has been merged.';
+    if (!canRestore && !draft.protected && draft.base_version !== currentVersion) {
+      heading.textContent += ' Local storage could not protect this draft. Keep this page open and copy the notes before leaving.';
+    }
     banner.appendChild(heading);
     if (!canRestore) {
       const details = document.createElement('pre');
@@ -1011,12 +1071,23 @@
     }
     banner.appendChild(actions);
     document.body.appendChild(banner);
+    if (autosaveTimer) clearTimeout(autosaveTimer);
+    autosaveTimer = null;
+    const pausedControls = [...form.querySelectorAll('input:not([type="hidden"]), select, textarea, button')]
+      .filter(control => !control.disabled);
+    pausedControls.forEach(control => { control.disabled = true; });
+    const resumeEditing = () => pausedControls.forEach(control => { control.disabled = false; });
     document.getElementById('draft-dismiss')?.addEventListener('click', () => {
-      clearDraft();
+      clearDraft(true);
       if (draftFromLegacy) localStorage.removeItem(draftFromLegacy);
+      resumeEditing();
       banner.remove();
+      // A 409 on this still-open page leaves an old form version. Fetch the
+      // accepted server record after the technician explicitly discards it.
+      if (draft.protected && draft.base_version === currentVersion) window.location.reload();
     });
     document.getElementById('draft-restore-btn')?.addEventListener('click', () => {
+      resumeEditing();
       const applied = applyDraftToForm(draft);
       banner.remove();
       stamp(applied ? 'Local edits restored. Review this page before saving.'
@@ -1048,6 +1119,8 @@
 
   async function autosave() {
     if (saving) return;
+    const pendingReview = protectedDraft();
+    if (pendingReview && !document.getElementById('draft-restore')) showRestorePrompt(pendingReview);
     if (document.getElementById('draft-restore')) {
       stamp('Review the local draft before saving this page.');
       return;
@@ -1059,6 +1132,7 @@
       fd.set('csrf_token', token);
     }
     fd.set('action', 'autosave');
+    let responseStatus = null;
     try {
       setSyncStatus('saving');
       saving = true;
@@ -1068,6 +1142,7 @@
         credentials: 'same-origin',
         headers: token ? { 'X-CSRFToken': token } : {},
       });
+      responseStatus = resp.status;
       const respText = await resp.text();
       if (resp.status === 302 || respText.toLowerCase().includes('login')) {
         alert('Session expired: your data is NOT being saved. Please log in again.');
@@ -1078,6 +1153,12 @@
       if (data.status !== 'ok') throw new Error('Save was not acknowledged');
       adoptVersion(data);
       baselineFields = {...draft.fields, survey_version: String(data.survey_version)};
+      if (protectedDraft()) {
+        showRestorePrompt(protectedDraft());
+        stamp('Save acknowledged, but a local draft still needs review.');
+        setSyncStatus('offline');
+        return;
+      }
       const ts = data.saved_at || new Date().toISOString();
       const changedDuringSave = changedSince(draft.fields);
       if (changedDuringSave) {
@@ -1091,6 +1172,7 @@
         setSyncStatus('synced');
       }
     } catch (err) {
+      if (responseStatus === 409) showRestorePrompt(protectDraft(collectDraftData()));
       stamp('Auto-save failed: ' + err);
       setSyncStatus('offline');
       if (!draftStored) stamp('Auto-save failed and local draft could not be stored: ' + err);
@@ -1100,6 +1182,12 @@
   }
 
   function scheduleAutosave() {
+    const pendingReview = protectedDraft();
+    if (pendingReview && !document.getElementById('draft-restore')) showRestorePrompt(pendingReview);
+    if (document.getElementById('draft-restore')) {
+      stamp('Review or discard the protected local draft before editing.');
+      return;
+    }
     if (autosaveTimer) clearTimeout(autosaveTimer);
     autosaveTimer = setTimeout(autosave, 45 * 1000);
     stamp('Auto-save pending...');
@@ -1111,10 +1199,15 @@
     try {
       draft = loadDraft();
     } catch (err) {
-      clearDraft();
+      stamp('Local draft could not be read. Keep this page open and contact support.');
+      setSyncStatus('offline');
       draft = null;
     }
-    if (draft && shouldPromptRestore(draft)) {
+    if (acknowledgedDraft(draft)) {
+      // The server confirmed this exact save attempt after its commit. A later
+      // edit has a different snapshot ID and must remain in localStorage.
+      if (clearDraft(false, acknowledgedSave.id) && draftFromLegacy) localStorage.removeItem(draftFromLegacy);
+    } else if (draft && shouldPromptRestore(draft)) {
       showRestorePrompt(draft);
       setSyncStatus('offline');
     }
@@ -1122,6 +1215,8 @@
 
   async function syncDraftOnReconnect() {
     if (saving) return;
+    const pendingReview = protectedDraft();
+    if (pendingReview && !document.getElementById('draft-restore')) showRestorePrompt(pendingReview);
     if (document.getElementById('draft-restore')) {
       stamp('Review the local draft before syncing this page.');
       return;
@@ -1130,7 +1225,8 @@
     try {
       draft = loadDraft();
     } catch (err) {
-      clearDraft();
+      stamp('Local draft could not be read. Keep this page open and contact support.');
+      setSyncStatus('offline');
       draft = null;
     }
     if (!draft || !draft.fields) return;
@@ -1145,6 +1241,7 @@
     }
     if (token && !fd.get('csrf_token')) fd.set('csrf_token', token);
     fd.set('action', 'autosave');
+    let responseStatus = null;
     try {
       setSyncStatus('saving');
       saving = true;
@@ -1154,6 +1251,7 @@
         credentials: 'same-origin',
         headers: token ? { 'X-CSRFToken': token } : {},
       });
+      responseStatus = resp.status;
       const respText = await resp.text();
       if (resp.status === 302 || respText.toLowerCase().includes('login')) {
         throw new Error('Session expired');
@@ -1163,6 +1261,12 @@
       if (data.status !== 'ok') throw new Error('Save was not acknowledged');
       adoptVersion(data);
       baselineFields = {...draft.fields, survey_version: String(data.survey_version)};
+      if (protectedDraft()) {
+        showRestorePrompt(protectedDraft());
+        stamp('Sync acknowledged, but a local draft still needs review.');
+        setSyncStatus('offline');
+        return;
+      }
       const changedDuringSync = changedSince(draft.fields);
       if (changedDuringSync) {
         saveDraft(collectDraftData());
@@ -1175,6 +1279,11 @@
         stamp('Draft synced at ' + (data.saved_at || new Date().toISOString()));
       }
     } catch (err) {
+      if (responseStatus === 409) {
+        let unsynced = draft;
+        try { unsynced = loadDraft() || draft; } catch (_) { /* retain the sent draft */ }
+        showRestorePrompt(protectDraft(unsynced));
+      }
       stamp('Draft sync failed: ' + err);
       setSyncStatus('offline');
     } finally {
@@ -1183,6 +1292,8 @@
   }
 
   form.addEventListener('submit', event => {
+    const pendingReview = protectedDraft();
+    if (pendingReview && !document.getElementById('draft-restore')) showRestorePrompt(pendingReview);
     if (document.getElementById('draft-restore')) {
       event.preventDefault();
       stamp('Review or discard the local draft before saving.');
@@ -1194,13 +1305,42 @@
       return;
     }
     ensureCsrf();
-    if (!saveDraft(collectDraftData())) stamp('Local draft unavailable; keep this page open until the save finishes.');
+    const draft = collectDraftData();
+    if (['save', 'add_row', 'complete'].includes(event.submitter?.value)) {
+      if (!window.crypto?.getRandomValues) {
+        event.preventDefault();
+        stamp('Cannot protect this save locally. Keep this page open and try again.');
+        return;
+      }
+      const bytes = window.crypto.getRandomValues(new Uint8Array(16));
+      bytes[6] = (bytes[6] & 15) | 64;
+      bytes[8] = (bytes[8] & 63) | 128;
+      const hex = [...bytes].map(byte => byte.toString(16).padStart(2, '0')).join('');
+      const id = `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+      let field = form.querySelector('input[name="survey_save_id"]');
+      if (!field) {
+        field = document.createElement('input');
+        field.type = 'hidden'; field.name = 'survey_save_id';
+        form.appendChild(field);
+      }
+      field.value = id;
+      draft.save_id = id;
+    }
+    if (!saveDraft(draft)) {
+      if (draft.save_id) event.preventDefault();
+      stamp('Local draft unavailable; keep this page open until the save finishes.');
+    }
   });
   form.addEventListener('input', scheduleAutosave);
   form.addEventListener('change', scheduleAutosave);
   ensureCsrf();
-  baselineFields = collectDraftData().fields;
-  tryRestoreDraft();
+  document.addEventListener('survey:form-ready', () => {
+    baselineFields = collectDraftData().fields;
+    tryRestoreDraft();
+  });
+  window.addEventListener('storage', event => {
+    if (event.key === draftKey && protectedDraft()) showRestorePrompt(protectedDraft());
+  });
   window.addEventListener('online', syncDraftOnReconnect);
   setInterval(autosave, 10 * 60 * 1000);
 })();
@@ -1430,8 +1570,9 @@
         if (!input) return;
         const current = input.value || "";
         const updated = window.prompt("Notes for this part:", current);
-        if (updated !== null) {
+        if (updated !== null && updated !== current) {
           input.value = updated;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
         }
       });
     });
@@ -1443,6 +1584,8 @@
         updateDecisionRow(sel);
       });
     });
+    // Draft comparison needs the quantity values established above.
+    document.dispatchEvent(new Event('survey:form-ready'));
 
     function applyBulkDecision(container, decision) {
       if (!container) return;

@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 import pytest
+from uuid import uuid4
 
 from models import (
     db,
@@ -193,10 +194,13 @@ def test_survey_autosave_round_trip_and_stale_rejection(app_instance, client, mo
 
     _login(client, user_id)
     url = f"/jobs/{job_id}/survey"
-    def send(action, version, notes):
-        return client.post(url, data={"action": action, "survey_version": str(version),
-                                      "visible_ids": str(item_id), f"decision_{item_id}": "replace",
-                                      f"notes_{item_id}": notes})
+    def send(action, version, notes, save_id=None):
+        data = {"action": action, "survey_version": str(version),
+                "visible_ids": str(item_id), f"decision_{item_id}": "replace",
+                f"notes_{item_id}": notes}
+        if save_id:
+            data["survey_save_id"] = save_id
+        return client.post(url, data=data)
 
     first = send("autosave", 0, "first")
     assert first.status_code == 200
@@ -217,20 +221,141 @@ def test_survey_autosave_round_trip_and_stale_rejection(app_instance, client, mo
     with monkeypatch.context() as patch:
         patch.setattr(survey_routes, "log_event", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("failure after edits")))
         with pytest.raises(RuntimeError, match="failure after edits"):
-            send("save", 2, "partial must roll back")
+            send("save", 2, "partial must roll back", str(uuid4()))
     with app_instance.app_context():
         assert _completion_state(job_id) == before_stale
+    with client.session_transaction() as sess:
+        assert "survey_save_ack" not in sess
 
-    manual = send("save", second.json["survey_version"], "manual")
+    save_id = str(uuid4())
+    manual = send("save", second.json["survey_version"], "manual", save_id)
     assert manual.status_code == 302
+    assert f"save_ack={save_id}" in manual.location
     with app_instance.app_context():
         assert db.session.get(Job, job_id).survey_version == 3
-    assert 'value="3"' in client.get(url).get_data(as_text=True)
+    wrong_context = client.get(f"{url}?section=unrelated&save_ack={save_id}")
+    assert 'const acknowledgedSave = null;' in wrong_context.get_data(as_text=True)
+    acknowledged = client.get(manual.location).get_data(as_text=True)
+    assert f'"id": "{save_id}"' in acknowledged
+    with client.session_transaction() as sess:
+        assert "survey_save_ack" not in sess
+    assert 'const acknowledgedSave = null;' in client.get(manual.location).get_data(as_text=True)
+    stale_manual = send("save", 2, "rejected", str(uuid4()))
+    assert stale_manual.status_code == 302 and "save_ack" not in stale_manual.location
+    with app_instance.app_context():
+        before_invalid = _completion_state(job_id)
+    invalid = client.post(url, data={
+        "action": "save", "survey_version": "3", "visible_ids": "999999",
+        f"notes_{item_id}": "invalid row", "survey_save_id": str(uuid4()),
+    })
+    assert invalid.status_code == 302 and "save_ack" not in invalid.location
+    with app_instance.app_context():
+        assert _completion_state(job_id) == before_invalid
+        assert db.session.get(SurveyItem, item_id).notes == "manual"
+        assert db.session.get(Job, job_id).survey_version == 3
     completed = send("complete", 3, "completed")
     assert completed.status_code == 302 and completed.location == f"/jobs/{job_id}/parts"
     with app_instance.app_context():
         assert db.session.get(Job, job_id).survey_version == 4
         assert db.session.get(SurveyItem, item_id).notes == "completed"
+
+
+def test_committed_complete_refusals_and_success_acknowledge_only_after_commit(app_instance, client):
+    with app_instance.app_context():
+        org = Organization(name="Gated", slug="gated")
+        db.session.add(org)
+        db.session.flush()
+        user = User(username="gated@example.com", password_hash=generate_password_hash("Password123!"),
+                    role=RoleEnum.ADMIN, organization_id=org.id)
+        template = Template(name="Gated", engine_type="T", organization_id=org.id)
+        db.session.add_all([user, template])
+        db.session.flush()
+        db.session.add_all([
+            TemplateItem(template_id=template.id, organization_id=org.id, section="A", pos=1,
+                         part_no="P1", name="Part 1", qty=1),
+            TemplateItem(template_id=template.id, organization_id=org.id, section="A", pos=2,
+                         part_no="P2", name="Measured", qty=1, requires_measurement=True,
+                         measurement_min=10.0, measurement_max=20.0, measurement_unit="mm"),
+        ])
+        job = Job(organization_id=org.id, job_pack_id="GATED", job_number="GATED",
+                  template_id=template.id, status=JobStatusEnum.SURVEY, created_by_id=user.id)
+        db.session.add(job)
+        db.session.flush()
+        db.session.add(PreSurveyResult(job_id=job.id, data="{}", completed_at=datetime.now(timezone.utc)))
+        db.session.commit()
+        ensure_survey_from_template(job)
+        ids = [item.id for item in SurveyItem.query.filter_by(job_id=job.id).order_by(SurveyItem.pos)]
+        job_id, user_id = job.id, user.id
+
+    _login(client, user_id)
+    url = f"/jobs/{job_id}/survey"
+    def submit(version, decisions, measurement="", action="complete"):
+        token = str(uuid4())
+        fields = {"action": action, "survey_version": str(version), "visible_ids": ",".join(map(str, ids)),
+                  "survey_save_id": token, f"decision_{ids[0]}": decisions[0],
+                  f"decision_{ids[1]}": decisions[1], f"measurement_value_{ids[1]}": measurement,
+                  f"spec_min_{ids[1]}": "10", f"spec_max_{ids[1]}": "20",
+                  f"measurement_unit_{ids[1]}": "mm"}
+        return client.post(url, data=fields), token
+
+    undecided, token = submit(0, ("replace", ""))
+    assert undecided.status_code == 302 and f"save_ack={token}" in undecided.location
+    assert "Cannot complete" in client.get(undecided.location).get_data(as_text=True)
+    with app_instance.app_context():
+        assert db.session.get(Job, job_id).survey_version == 1
+        assert db.session.get(SurveyItem, ids[0]).decision == DecisionEnum.REPLACE
+
+    unmeasured, token = submit(1, ("replace", "replace"))
+    assert unmeasured.status_code == 302 and f"save_ack={token}" in unmeasured.location
+    assert "measurement-required" in client.get(unmeasured.location).get_data(as_text=True)
+    with app_instance.app_context():
+        assert db.session.get(Job, job_id).survey_version == 2
+        assert db.session.get(SurveyItem, ids[1]).decision == DecisionEnum.REPLACE
+        before_invalid = _completion_state(job_id)
+
+    invalid, _ = submit(2, ("replace", "replace"), "1.2.3")
+    assert invalid.status_code == 302 and "save_ack" not in invalid.location
+    with app_instance.app_context():
+        assert _completion_state(job_id) == before_invalid
+
+    completed, token = submit(2, ("replace", "replace"), "10.02")
+    with client.session_transaction() as sess:
+        completion_messages = sess.get("_flashes", [])
+    assert completed.status_code == 302 and completed.location == f"/jobs/{job_id}/parts", completion_messages
+    with app_instance.app_context():
+        assert db.session.get(Job, job_id).status == JobStatusEnum.OFFICE
+        assert db.session.get(Job, job_id).survey_version == 3
+    survey_after_complete = client.get(url).get_data(as_text=True)
+    assert f'"id": "{token}"' in survey_after_complete
+    assert 'const acknowledgedSave = null;' in client.get(url).get_data(as_text=True)
+
+
+def test_add_row_acknowledges_submitted_snapshot_when_visible_rows_change(app_for_tests, seed_users, job_id):
+    with app_for_tests.app_context():
+        job = db.session.get(Job, job_id)
+        db.session.add(PreSurveyResult(job_id=job_id, data="{}", completed_at=datetime.now(timezone.utc)))
+        db.session.commit()
+        ensure_survey_from_template(job)
+        item_ids = [item.id for item in SurveyItem.query.filter_by(job_id=job_id).order_by(SurveyItem.id)]
+        original_count = len(item_ids)
+
+    from tests.conftest import login_as
+    client = app_for_tests.test_client()
+    login_as(client, username="admin@example.com")
+    token = str(uuid4())
+    response = client.post(f"/jobs/{job_id}/survey", data={
+        "action": "add_row", "survey_version": "0", "visible_ids": ",".join(map(str, item_ids)),
+        f"decision_{item_ids[0]}": "replace", "new_name": "Added part",
+        "new_section": "A", "survey_save_id": token,
+    })
+    assert response.status_code == 302 and f"save_ack={token}" in response.location
+    rendered = client.get(response.location).get_data(as_text=True)
+    assert f'"id": "{token}"' in rendered
+    submitted_ids = ",".join(map(str, item_ids))
+    assert f'"visible_ids": "{submitted_ids}"' in rendered
+    with app_for_tests.app_context():
+        assert SurveyItem.query.filter_by(job_id=job_id).count() == original_count + 1
+        assert db.session.get(SurveyItem, item_ids[0]).decision == DecisionEnum.REPLACE
 
 
 def test_survey_rejects_cross_section_row_identity(app_for_tests, seed_users, job_id):

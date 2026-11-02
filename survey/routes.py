@@ -1,5 +1,6 @@
 import os
 import re
+from uuid import UUID
 from functools import wraps
 from datetime import datetime, timezone
 from flask import (
@@ -392,6 +393,23 @@ def job_survey(job_id):
     section_images = _expand_section_images_for_sections(section_images, sections)
     section_illustrations = _expand_section_illustrations(_build_section_illustrations(job))
 
+    save_ack = None
+    if request.method == "GET":
+        pending = session.get("survey_save_ack")
+        if (pending and (request.args.get("save_ack") == pending.get("id")
+                         or (pending.get("action") == "complete" and not request.args.get("save_ack")))
+                and pending.get("organization_id") == job.organization_id
+                and pending.get("job_id") == job.id
+                and pending.get("user_id") == user.id
+                and (pending.get("version") == job.survey_version
+                     or (pending.get("action") == "complete"
+                         and pending.get("version", 0) <= job.survey_version))
+                and pending.get("layout") == layout
+                and pending.get("section") == section_filter
+                and pending.get("page") == page
+                and pending.get("per_page") == per_page):
+            save_ack = session.pop("survey_save_ack")
+
     if request.method == "POST":
         redirect_kwargs = {
             "job_id": job.id,
@@ -402,6 +420,26 @@ def job_survey(job_id):
         if section_filter:
             redirect_kwargs["section"] = section_filter
         action = request.form.get("action", "save")
+        def acknowledge_committed_save():
+            if action not in {"save", "add_row", "complete"}:
+                return
+            raw_id = request.form.get("survey_save_id", "")
+            try:
+                parsed_id = UUID(raw_id)
+                valid_id = parsed_id.version == 4 and str(parsed_id) == raw_id
+            except (ValueError, AttributeError):
+                valid_id = False
+            if not valid_id:
+                return
+            session["survey_save_ack"] = {
+                "id": raw_id, "organization_id": job.organization_id,
+                "job_id": job.id, "user_id": user.id,
+                "version": expected_version + 1, "action": action,
+                "visible_ids": raw_ids,
+                "layout": layout, "section": section_filter,
+                "page": page, "per_page": per_page,
+            }
+            redirect_kwargs["save_ack"] = raw_id
         if read_only:
             flash(t("inspection_read_only"), "warning")
             return redirect(url_for("survey.job_survey", **redirect_kwargs))
@@ -603,6 +641,7 @@ def job_survey(job_id):
 
             if undecided_count:
                 db.session.commit()
+                acknowledge_committed_save()
                 flash(
                     f"Cannot complete {t('inspection')} – {undecided_count} line(s) still undecided.",
                     "error",
@@ -622,6 +661,7 @@ def job_survey(job_id):
             )
             if missing_measurements_count:
                 db.session.commit()
+                acknowledge_committed_save()
                 flash(
                     f"Cannot complete {t('inspection')} – {missing_measurements_count} measurement-required line(s) missing results.",
                     "error",
@@ -655,6 +695,8 @@ def job_survey(job_id):
                 flash(f"Survey completion failed; no changes applied. ({exc})", "danger")
                 return redirect(url_for("survey.job_survey", **redirect_kwargs))
 
+            acknowledge_committed_save()
+
             if created > 0:
                 flash(
                     f"{t('inspection_caps')} completed – {created} part line(s) added to the {t('parts_list')}.",
@@ -682,6 +724,7 @@ def job_survey(job_id):
         if action == "autosave":
             return jsonify({"status": "ok", "survey_version": expected_version + 1,
                             "saved_at": datetime.utcnow().isoformat() + "Z"})
+        acknowledge_committed_save()
         flash(f"{t('strip_inspection')} updated.", "success")
         return redirect(url_for("survey.job_survey", **redirect_kwargs))
 
@@ -701,4 +744,5 @@ def job_survey(job_id):
         per_page=per_page,
         total_items=total_items,
         total_pages=total_pages,
+        save_ack=save_ack,
     )
