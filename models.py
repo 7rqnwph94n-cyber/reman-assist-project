@@ -1696,6 +1696,9 @@ class IllustrationHotspot(db.Model):
 
 class TemplateMeasurementSpec(db.Model):
     __tablename__ = "template_measurement_specs"
+    __table_args__ = (
+        db.UniqueConstraint("template_item_id", "instance_index", name="uq_template_measurement_specs_item_instance"),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     template_item_id = db.Column(
@@ -1741,6 +1744,9 @@ class TemplateSectionIllustrationLink(db.Model):
 
 class JobCostingUpload(db.Model):
     __tablename__ = "job_costing_uploads"
+    __table_args__ = (
+        db.UniqueConstraint("job_id", "version", name="uq_job_costing_uploads_job_version"),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     job_id = db.Column(

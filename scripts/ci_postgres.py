@@ -15,7 +15,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import Column, UniqueConstraint, create_engine, inspect, text
 from sqlalchemy.exc import OperationalError
 from scripts.migration_check import check_database, check_graph, migration_script
 from tests.postgres_support import (
@@ -24,9 +24,81 @@ from tests.postgres_support import (
 )
 
 
+def assert_valid_unique_indexes(connection):
+    """Reflection alone does not expose validity in SQLAlchemy 2.0.31."""
+    invalid = connection.execute(text("""
+        SELECT t.relname AS table_name, i.relname AS index_name
+        FROM pg_catalog.pg_index x
+        JOIN pg_catalog.pg_class t ON t.oid = x.indrelid
+        JOIN pg_catalog.pg_class i ON i.oid = x.indexrelid
+        JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace
+        WHERE n.nspname = 'public' AND x.indisunique
+          AND (NOT x.indisvalid OR NOT x.indisready OR NOT x.indislive)
+        ORDER BY t.relname, i.relname
+    """)).mappings().all()
+    if invalid:
+        names = ", ".join(f"{row['table_name']}.{row['index_name']}" for row in invalid)
+        raise RuntimeError(f"Invalid or inactive PostgreSQL unique indexes: {names}")
+
+
+def reflected_unique_column_sets(inspector, table_name, schema=None):
+    """Ordinary full-table keys; names and key order do not affect uniqueness.
+
+    PostgreSQL reflection excludes INCLUDE columns from column_names. A partial
+    or expression index is not proof of the ordinary column rule in our models.
+    """
+    keys = set()
+    constraints = inspector.get_unique_constraints(table_name, schema=schema)
+    indexes = inspector.get_indexes(table_name, schema=schema)
+    for rule in [*constraints, *(index for index in indexes if index["unique"])]:
+        columns = rule.get("column_names", [])
+        options = rule.get("dialect_options", {})
+        if (not columns or not all(isinstance(column, str) for column in columns)
+                or rule.get("expressions")
+                or any(key.endswith("_where") and value is not None for key, value in options.items())):
+            continue
+        keys.add(frozenset(columns))
+    return keys
+
+
+def verify_table_uniqueness(inspector, table, schema=None):
+    expected = {
+        frozenset(column.name for column in constraint.columns)
+        for constraint in table.constraints if isinstance(constraint, UniqueConstraint)
+    }
+    for index in table.indexes:
+        if not index.unique:
+            continue
+        if (not all(isinstance(expression, Column) for expression in index.expressions)
+                or any(key.endswith("_where") and value is not None
+                       for key, value in index.dialect_kwargs.items())):
+            raise RuntimeError(f"Model unique index {index.name} requires explicit expression/predicate validation")
+        expected.add(frozenset(column.name for column in index.columns))
+    actual = reflected_unique_column_sets(inspector, table.name, schema)
+    missing = expected - actual
+    if missing:
+        columns = sorted(tuple(sorted(key)) for key in missing)
+        raise RuntimeError(f"Missing unique constraints on {table.name}: {columns}")
+    nullable = {column.name for column in table.columns if column.nullable}
+    for rule in [*inspector.get_unique_constraints(table.name, schema=schema),
+                 *(index for index in inspector.get_indexes(table.name, schema=schema) if index["unique"])]:
+        key = frozenset(rule.get("column_names", []))
+        if (key in expected and key & nullable
+                and rule.get("dialect_options", {}).get("postgresql_nulls_not_distinct")):
+            raise RuntimeError(f"Unexpected NULLS NOT DISTINCT uniqueness on {table.name}: {sorted(key)}")
+    # A global key left beside its tenant-scoped replacement blocks legitimate
+    # cross-organization values. Adding redundant composites is not a repair.
+    obsolete = {key for key in actual if "organization_id" not in key
+                and key | {"organization_id"} in expected}
+    if obsolete:
+        columns = sorted(tuple(sorted(key)) for key in obsolete)
+        raise RuntimeError(f"Obsolete global uniqueness on {table.name}: {columns}")
+
+
 def schema_fingerprint(connection, metadata):
     """Check model tables, columns, enum labels, FKs and uniqueness after upgrade."""
     inspector = inspect(connection)
+    assert_valid_unique_indexes(connection)
     tables = set(inspector.get_table_names(schema="public"))
     for table in metadata.sorted_tables:
         if table.name not in tables:
@@ -54,24 +126,7 @@ def schema_fingerprint(connection, metadata):
                     for fk in foreign_keys
                 ):
                     raise RuntimeError(f"Missing foreign key on {table.name}.{column.name}")
-        unique_sets = {
-            tuple(constraint["column_names"])
-            for constraint in inspector.get_unique_constraints(table.name, schema="public")
-        }
-        unique_sets.update(
-            tuple(index["column_names"]) for index in inspector.get_indexes(table.name, schema="public")
-            if index["unique"]
-        )
-        from sqlalchemy import UniqueConstraint
-        expected_unique = {
-            tuple(column.name for column in constraint.columns)
-            for constraint in table.constraints if isinstance(constraint, UniqueConstraint)
-        }
-        expected_unique.update(
-            tuple(column.name for column in index.columns) for index in table.indexes if index.unique
-        )
-        if not expected_unique <= unique_sets:
-            raise RuntimeError(f"Missing unique constraints on {table.name}")
+        verify_table_uniqueness(inspector, table, schema="public")
     # Include every public table, not only tables currently represented by models.
     # Defaults and non-unique indexes must also participate in repeatability checks.
     catalog = {}

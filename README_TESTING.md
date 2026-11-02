@@ -26,7 +26,7 @@ FLASK_CONFIG=testing APP_ENV=test RUN_STRESS_TESTS=0 PILOT_REQUIRE_PDF=0 python 
 ```
 
 `pytest.ini` selects the complete `tests/` suite, excluding `e2e/`. The expected
-review baseline is **231 passed, 9 skipped**, including 69 socket-free PostgreSQL
+review baseline is **288 passed, 9 skipped**, including 69 socket-free PostgreSQL
 configuration/guard unit cases. The nine intentional skips are seven
 stress/integration tests gated by `RUN_STRESS_TESTS=1` and two pilot PDF tests
 gated by `PILOT_REQUIRE_PDF=1`; PDF import additionally requires a sample file.
@@ -225,3 +225,20 @@ enum labels, backfills, targeted downgrades and forward-repair safety. Use the
 focused commands in the audit document or the complete default suite above.
 The PostgreSQL CI gate and disposable database guards remain unchanged. Live
 PostgreSQL execution of these corrections is still pending.
+
+Cycle 5's [uniqueness audit](docs/POSTGRES_UNIQUENESS_AUDIT_CYCLE5.md) documents
+the next CI result: all 42 migrations completed, then schema verification found
+that template names and job identifiers still had obsolete global unique rules.
+The new head is `f4a5b6c7d8e9` (43 revisions). Its forward repair checks existing
+data before replacing those rules with the model's per-organization composites.
+Existing equivalent unique indexes are reused, and unsafe legacy dependencies
+or duplicate/NULL keys require manual review. The two previously migration-only
+upload-version and measurement-instance rules are now also declared in models.
+
+Fifty-six new socket-free uniqueness regressions cover the complete 18-rule
+inventory, missing-rule failures, verifier semantics, populated upgrades and
+refusal paths. The existing all-revision Boolean audit also covers the new
+revision. Three new live uniqueness cases bring the dedicated PostgreSQL suite
+to 11 cases; these have **NOT EXECUTED locally**. The CI job still runs the full
+guarded migration/schema/repeatability gate and every PostgreSQL integration case.
+The focused local command and remaining compatibility limits are in the audit.

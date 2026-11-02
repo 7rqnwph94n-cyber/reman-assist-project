@@ -356,6 +356,8 @@ def test_repeatability_fingerprint_detects_non_model_schema_drift(monkeypatch, m
 
     inspector = Inspector()
     monkeypatch.setattr(ci_postgres, "inspect", lambda connection: inspector)
+    # This test varies a fake schema catalog; validity has separate regressions.
+    monkeypatch.setattr(ci_postgres, "assert_valid_unique_indexes", lambda connection: None)
     before = ci_postgres.schema_fingerprint(None, metadata)
     assert ci_postgres.schema_fingerprint(None, metadata) == before
     inspector.changed = True
