@@ -1,5 +1,6 @@
 import os
 import re
+from functools import wraps
 from datetime import datetime, timezone
 from flask import (
     Blueprint,
@@ -47,6 +48,17 @@ from services.bom_services import apply_supersedes
 from services.bom import regenerate_bom_for_job
 
 survey_bp = Blueprint("survey", __name__)
+
+
+def rollback_failed_survey(view):
+    @wraps(view)
+    def guarded(*args, **kwargs):
+        try:
+            return view(*args, **kwargs)
+        except Exception:
+            db.session.rollback()
+            raise
+    return guarded
 
 
 def _get_or_404(model, ident):
@@ -284,6 +296,7 @@ def seed_survey(job_id):
 @survey_bp.route("/jobs/<int:job_id>/survey", methods=["GET", "POST"])
 @login_required
 @job_access_required(RoleEnum.ADMIN.value, RoleEnum.OFFICE.value, RoleEnum.TECHNICIAN.value)
+@rollback_failed_survey
 def job_survey(job_id):
     job = _get_or_404(Job, job_id)
     user = current_user()
@@ -356,8 +369,8 @@ def job_survey(job_id):
             .all()
         })
     section_filter = (request.args.get("section") or "").strip()
-    if section_filter:
-        section_filter = section_filter.strip()
+    if section_filter.lower() == "all":
+        section_filter = ""
     display_query = base_query
     if section_filter and section_filter.lower() != "all":
         display_query = display_query.filter(func.trim(SurveyItem.section) == section_filter)
@@ -405,6 +418,55 @@ def job_survey(job_id):
             flash(f"{t('inspection_changed')} Please reload and try again.", "danger")
             return redirect(url_for("survey.job_survey", job_id=job.id, layout=layout))
 
+        # The page's row identity is server-derived. A draft from another section
+        # must never turn a successful response into a no-op or redirect writes.
+        actual_page_ids = {si.id for si in display_items}
+        raw_ids = request.form.get("visible_ids")
+        try:
+            submitted_ids = [int(value) for value in (raw_ids or "").split(",")]
+        except ValueError:
+            submitted_ids = []
+        row_fields = ("decision_", "notes_", "measurement_value_", "spec_min_",
+                      "spec_max_", "measurement_unit_", "amount_required_")
+        posted_row_ids = set()
+        invalid_row_field = False
+        for field in request.form:
+            prefix = next((p for p in row_fields if field.startswith(p)), None)
+            if prefix:
+                suffix = field[len(prefix):]
+                if not suffix.isdecimal():
+                    invalid_row_field = True
+                else:
+                    posted_row_ids.add(int(suffix))
+        submitted_set = set(submitted_ids)
+        if (not submitted_ids or len(submitted_set) != len(submitted_ids)
+                or not submitted_set <= actual_page_ids or invalid_row_field
+                or not posted_row_ids <= submitted_set):
+            db.session.rollback()
+            message = "Survey rows do not match this page. Reload and review your unsaved changes."
+            if action == "autosave":
+                return jsonify({"status": "error", "message": message}), 400
+            flash(message, "danger")
+            return redirect(url_for("survey.job_survey", **redirect_kwargs))
+
+        # Claim this version in the database before changing any survey rows.
+        # PostgreSQL serialises competing UPDATEs; only the winner's transaction
+        # may write the items, audit events and final status.
+        claimed = (
+            db.session.query(Job)
+            .filter(Job.id == job.id, Job.organization_id == job.organization_id,
+                    Job.survey_version == expected_version,
+                    Job.status.in_([JobStatusEnum.PRE_SURVEY, JobStatusEnum.SURVEY]))
+            .update({Job.survey_version: expected_version + 1}, synchronize_session=False)
+        )
+        if claimed != 1:
+            db.session.rollback()
+            if action == "autosave":
+                return jsonify({"status": "conflict", "message": t("inspection_changed")}), 409
+            flash(f"{t('inspection_changed')} Please reload and try again.", "danger")
+            return redirect(url_for("survey.job_survey", job_id=job.id, layout=layout))
+        db.session.expire(job, ["survey_version"])
+
         # Hydrate missing measurement limits from template (for older jobs without seeded specs)
         if job.template_id:
             tmpl_items = (
@@ -425,25 +487,14 @@ def job_survey(job_id):
                             item.measurement_unit = tmpl_item.measurement_unit
 
         def _measurement_error(message: str):
+            db.session.rollback()
             if action == "autosave":
                 return jsonify({"status": "error", "message": message}), 400
             flash(message, "danger")
             return redirect(url_for("survey.job_survey", **redirect_kwargs))
 
         # 4a) Update decisions + notes for each existing row
-        visible_ids_form = request.form.get("visible_ids") or ""
-        try:
-            visible_set = {
-                int(v) for v in visible_ids_form.split(",") if v.strip().isdigit()
-            }
-        except ValueError:
-            visible_set = set()
-        # Constrain to items actually on this page to prevent hidden-item manipulation
-        actual_page_ids = {si.id for si in display_items}
-        if visible_set:
-            visible_set = visible_set & actual_page_ids
-        else:
-            visible_set = actual_page_ids
+        visible_set = submitted_set
 
         if visible_set:
             visible_items = (
@@ -509,7 +560,10 @@ def job_survey(job_id):
             if new_name:
                 new_section = (request.form.get("new_section") or "").strip() or None
                 new_pos_raw = (request.form.get("new_pos") or "").strip()
-                new_pos = int(new_pos_raw) if new_pos_raw else None
+                try:
+                    new_pos = int(new_pos_raw) if new_pos_raw else None
+                except ValueError:
+                    return _measurement_error("New item position must be a number.")
 
                 new_part_no = (request.form.get("new_part_no") or "").strip() or None
                 if new_part_no:
@@ -588,7 +642,6 @@ def job_survey(job_id):
                 created = regenerate_bom_for_job(job, all_items, request.form)
                 apply_supersedes(job.id)
                 change_job_status(job, JobStatusEnum.OFFICE, user=None, reason=f"{t('inspection_caps')} completed")
-                job.survey_version = (job.survey_version or 0) + 1
                 log_event(
                     action="survey_completed",
                     message=f"{t('inspection_caps')} completed with {created} {t('parts_list_lines')}",
@@ -616,7 +669,6 @@ def job_survey(job_id):
 
             return redirect(url_for("parts.job_parts", job_id=job.id))
 
-        job.survey_version = (job.survey_version or 0) + 1
         if action != "autosave":
             log_event(
                 action="survey_saved",
@@ -628,7 +680,8 @@ def job_survey(job_id):
                 bump_revision(job, "survey_updated", user=current_user())
         db.session.commit()
         if action == "autosave":
-            return jsonify({"status": "ok", "saved_at": datetime.utcnow().isoformat() + "Z"})
+            return jsonify({"status": "ok", "survey_version": expected_version + 1,
+                            "saved_at": datetime.utcnow().isoformat() + "Z"})
         flash(f"{t('strip_inspection')} updated.", "success")
         return redirect(url_for("survey.job_survey", **redirect_kwargs))
 

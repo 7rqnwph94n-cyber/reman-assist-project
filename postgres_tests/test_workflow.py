@@ -1,8 +1,11 @@
 """Real PostgreSQL workflow regressions; run only through the dedicated gate."""
 
 import json
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier, local
 from urllib.parse import urlsplit
 from uuid import uuid4
+from sqlalchemy import event
 
 import pytest
 from werkzeug.security import generate_password_hash
@@ -17,6 +20,59 @@ from utils.tenant_scope import set_current_org_id
 
 
 PASSWORD = "PostgresTestOnly123!"
+
+
+def test_overlapping_survey_saves_claim_one_version(postgres_app, client, job_data):
+    """Synchronise both requests at the database version write, not at test start."""
+    job_id = job_data["job_id"]
+    tech = job_data["users"]["owner"][RoleEnum.TECHNICIAN]
+    login(client, tech)
+    response = client.post(f"/jobs/{job_id}/pre_survey", data={"field_1": "on"})
+    assert response.status_code == 302
+    with postgres_app.app_context():
+        item_id = SurveyItem.query.filter_by(job_id=job_id).first().id
+        before_audit = [(row.id, row.action) for row in AuditLog.query.filter_by(job_id=job_id).order_by(AuditLog.id)]
+        engine = db.engine
+
+    clients = [postgres_app.test_client(), postgres_app.test_client()]
+    for caller in clients:
+        login(caller, tech)
+    read_barrier = Barrier(2, timeout=10)
+    barrier = Barrier(2, timeout=10)
+    seen = local()
+
+    def after_read(conn, cursor, statement, parameters, context, executemany):
+        if not getattr(seen, "job_read", False) and statement.lstrip().upper().startswith("SELECT") and "FROM jobs" in statement:
+            seen.job_read = True
+            read_barrier.wait()
+
+    def before_write(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith("UPDATE JOBS SET") and "survey_version" in statement:
+            barrier.wait()
+
+    def save(index):
+        return clients[index].post(f"/jobs/{job_id}/survey", data={
+            "action": "autosave", "survey_version": "0", "visible_ids": str(item_id),
+            f"decision_{item_id}": "replace", f"notes_{item_id}": f"writer {index}",
+        })
+
+    event.listen(engine, "after_cursor_execute", after_read)
+    event.listen(engine, "before_cursor_execute", before_write)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(save, index) for index in range(2)]
+            results = [future.result(timeout=20) for future in futures]
+    finally:
+        event.remove(engine, "after_cursor_execute", after_read)
+        event.remove(engine, "before_cursor_execute", before_write)
+
+    assert sorted(response.status_code for response in results) == [200, 409]
+    winner = next(index for index, response in enumerate(results) if response.status_code == 200)
+    assert results[winner].json["survey_version"] == 1
+    with postgres_app.app_context():
+        assert db.session.get(Job, job_id).survey_version == 1
+        assert db.session.get(SurveyItem, item_id).notes == f"writer {winner}"
+        assert [(row.id, row.action) for row in AuditLog.query.filter_by(job_id=job_id).order_by(AuditLog.id)] == before_audit
 
 
 def login(client, user):
